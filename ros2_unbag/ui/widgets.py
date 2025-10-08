@@ -29,6 +29,220 @@ from ros2_unbag.core.processors import Processor
 from ros2_unbag.core.routines import ExportRoutine, ExportMode
 
 
+class ProcessorChainWidget(QtWidgets.QWidget):
+    """Widget to configure an ordered chain of processors for a topic."""
+
+    def __init__(self, topic_type, available_processors, parent=None):
+        super().__init__(parent)
+        self.topic_type = topic_type
+        self.available_processors = list(available_processors)
+        self.entries = []
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        self.chain_layout = QtWidgets.QVBoxLayout()
+        self.chain_layout.setSpacing(8)
+        layout.addLayout(self.chain_layout)
+
+        self.empty_hint = QtWidgets.QLabel("No processors configured.")
+        self.empty_hint.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(self.empty_hint)
+
+        add_row = QtWidgets.QHBoxLayout()
+        add_row.addStretch()
+        self.add_button = QtWidgets.QPushButton("Add Processor")
+        self.add_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.add_button.clicked.connect(self.add_entry)
+        add_row.addWidget(self.add_button)
+        layout.addLayout(add_row)
+
+        self._update_empty_hint()
+
+    def add_entry(self, preset=None):
+        entry = _ProcessorEntry(self)
+        self.entries.append(entry)
+        self.chain_layout.addWidget(entry)
+        self._reindex_entries()
+        if preset:
+            entry.apply_config(preset)
+        else:
+            entry.select_default()
+        self._update_empty_hint()
+        return entry
+
+    def remove_entry(self, entry):
+        if entry in self.entries:
+            self.entries.remove(entry)
+            self.chain_layout.removeWidget(entry)
+            entry.deleteLater()
+            self._reindex_entries()
+            self._update_empty_hint()
+
+    def move_entry(self, entry, delta):
+        if entry not in self.entries:
+            return
+        idx = self.entries.index(entry)
+        new_idx = idx + delta
+        if new_idx < 0 or new_idx >= len(self.entries):
+            return
+        self.entries.pop(idx)
+        self.entries.insert(new_idx, entry)
+        self.chain_layout.removeWidget(entry)
+        self.chain_layout.insertWidget(new_idx, entry)
+        self._reindex_entries()
+
+    def get_chain(self):
+        chain = []
+        for entry in self.entries:
+            config = entry.get_config()
+            if config:
+                chain.append(config)
+        return chain
+
+    def set_chain(self, configs):
+        self.clear()
+        for cfg in configs or []:
+            self.add_entry(cfg)
+        if not configs:
+            self._update_empty_hint()
+
+    def clear(self):
+        for entry in list(self.entries):
+            self.remove_entry(entry)
+
+    def _reindex_entries(self):
+        total = len(self.entries)
+        for idx, entry in enumerate(self.entries, start=1):
+            entry.set_index(idx, total)
+
+    def _update_empty_hint(self):
+        self.empty_hint.setVisible(len(self.entries) == 0)
+
+
+class _ProcessorEntry(QtWidgets.QFrame):
+    """Single processor entry row inside the processor chain widget."""
+
+    def __init__(self, chain_widget):
+        super().__init__()
+        self.chain_widget = chain_widget
+        self.arg_inputs = {}
+
+        self.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        self.setFrameShadow(QtWidgets.QFrame.Raised)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
+
+        header = QtWidgets.QHBoxLayout()
+        header.setSpacing(6)
+
+        self.index_label = QtWidgets.QLabel("1.")
+        self.index_label.setFixedWidth(24)
+        header.addWidget(self.index_label)
+
+        self.combo = QtWidgets.QComboBox()
+        self.combo.addItems(self.chain_widget.available_processors)
+        self.combo.currentTextChanged.connect(self._on_processor_changed)
+        header.addWidget(self.combo, stretch=1)
+
+        self.up_button = QtWidgets.QToolButton()
+        self.up_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_ArrowUp))
+        self.up_button.setAutoRaise(True)
+        self.up_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.up_button.clicked.connect(lambda: self.chain_widget.move_entry(self, -1))
+        header.addWidget(self.up_button)
+
+        self.down_button = QtWidgets.QToolButton()
+        self.down_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_ArrowDown))
+        self.down_button.setAutoRaise(True)
+        self.down_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.down_button.clicked.connect(lambda: self.chain_widget.move_entry(self, 1))
+        header.addWidget(self.down_button)
+
+        self.remove_button = QtWidgets.QToolButton()
+        self.remove_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DialogCloseButton))
+        self.remove_button.setAutoRaise(True)
+        self.remove_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.remove_button.clicked.connect(lambda: self.chain_widget.remove_entry(self))
+        header.addWidget(self.remove_button)
+
+        layout.addLayout(header)
+
+        self.args_layout = QtWidgets.QFormLayout()
+        self.args_layout.setContentsMargins(0, 4, 0, 0)
+        self.args_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+        layout.addLayout(self.args_layout)
+
+        self._on_processor_changed(self.combo.currentText())
+
+    def set_index(self, index, total):
+        self.index_label.setText(f"{index}.")
+        self.up_button.setEnabled(index > 1)
+        self.down_button.setEnabled(index < total)
+
+    def select_default(self):
+        if self.chain_widget.available_processors:
+            self.combo.setCurrentIndex(0)
+
+    def apply_config(self, config):
+        name = config.get("name")
+        if name and name in self.chain_widget.available_processors:
+            self.combo.setCurrentText(name)
+        elif name:
+            # Allow configuring processors that were loaded dynamically after widget creation.
+            self.combo.addItem(name)
+            self.combo.setCurrentText(name)
+
+        args = config.get("args", {}) or {}
+        self._on_processor_changed(self.combo.currentText())
+        for arg_name, value in args.items():
+            if arg_name in self.arg_inputs:
+                self.arg_inputs[arg_name].setText(str(value))
+
+    def get_config(self):
+        name = self.combo.currentText()
+        args = {}
+        for arg_name, edit in self.arg_inputs.items():
+            value = edit.text().strip()
+            if value:
+                args[arg_name] = value
+        return {"name": name, "args": args}
+
+    def _clear_args(self):
+        while self.args_layout.rowCount():
+            self.args_layout.removeRow(0)
+        self.arg_inputs = {}
+
+    def _on_processor_changed(self, processor_name):
+        self._clear_args()
+        args = Processor.get_args(self.chain_widget.topic_type, processor_name)
+        if not args:
+            return
+
+        for arg_name, (param, doc) in args.items():
+            label = QtWidgets.QLabel()
+            label.setText(f"{arg_name} (optional)" if param.default != inspect.Parameter.empty else arg_name)
+
+            parts = []
+            if doc:
+                parts.append(doc)
+            if param.default != inspect.Parameter.empty:
+                parts.append(f"default: {param.default}")
+            if param.annotation != inspect.Parameter.empty:
+                annotation = getattr(param.annotation, "__name__", str(param.annotation))
+                parts.append(f"Type: {annotation}")
+            placeholder_text = " — ".join(parts)
+
+            arg_edit = QtWidgets.QLineEdit()
+            arg_edit.setPlaceholderText(placeholder_text)
+
+            self.args_layout.addRow(label, arg_edit)
+            self.arg_inputs[arg_name] = arg_edit
+
+
 class TopicSelector(QtWidgets.QWidget):
     # Widget to display and select available topics from the bag
 
@@ -166,7 +380,6 @@ class ExportOptions(QtWidgets.QWidget):
         self.master_group.setExclusive(True)  # ensure single master
         self.selected_topics = selected_topics
         self.all_topics = all_topics
-        self.processor_args = {}
         self.default_folder = default_folder
 
         self.init_ui()
@@ -352,16 +565,11 @@ class ExportOptions(QtWidgets.QWidget):
             self.master_checkboxes[topic] = is_master_check
 
             # Processing selection
-            if Processor.get_formats(topic_type):
-                proc_combo = QtWidgets.QComboBox()
-                proc_combo.addItems(
-                    ["No Processor", *Processor.get_formats(topic_type)])
-                proc_combo.currentTextChanged.connect(
-                    lambda selected_processor, fl=form_layout, t=topic, tt
-                    =topic_type: self._processor_changed(
-                        selected_processor, t, tt, fl))
+            available_processors = Processor.get_formats(topic_type)
+            if available_processors:
+                proc_chain_widget = ProcessorChainWidget(topic_type, available_processors)
             else:
-                proc_combo = None
+                proc_chain_widget = None
 
             form_layout.addRow("Format", fmt_combo)
             form_layout.addRow(mode_label, mode_combo)
@@ -369,8 +577,8 @@ class ExportOptions(QtWidgets.QWidget):
             form_layout.addRow("Subdirectory", rel_path_edit)
             form_layout.addRow("Naming", name_scheme_edit)
             form_layout.addRow("Master Topic", is_master_check)
-            if proc_combo:
-                form_layout.addRow("Processor", proc_combo)
+            if proc_chain_widget:
+                form_layout.addRow("Processors", proc_chain_widget)
 
             group_box.setLayout(form_layout)
             layout.addWidget(group_box)
@@ -384,7 +592,7 @@ class ExportOptions(QtWidgets.QWidget):
                 "subdir": rel_path_edit,
                 "naming": name_scheme_edit,
                 "master_checkbox": is_master_check,
-                "processor_combo": proc_combo,
+                "processor_chain": proc_chain_widget,
             }
 
         # ────────── Help ──────────
@@ -427,72 +635,6 @@ class ExportOptions(QtWidgets.QWidget):
         # Default epsilon if nearest is selected
         if mode == "nearest" and not self.eps_edit.text().strip():
             self.eps_edit.setText("0.5")
-
-    def _processor_changed(self, selected_processor, topic, topic_type,
-                           form_layout):
-        """
-        Update the form layout when the processor selection changes: clear old argument fields and add QLineEdits for new processor args.
-
-        Args:
-            selected_processor: Name of the selected processor (str).
-            topic: Topic name (str).
-            topic_type: Message type (str).
-            form_layout: QFormLayout instance for the topic.
-
-        Returns:
-            None
-        """
-        # Safely clear existing argument rows
-        for i in reversed(range(form_layout.rowCount())):
-            item = form_layout.itemAt(i, QtWidgets.QFormLayout.LabelRole)
-            if item:
-                label = item.widget()
-                if label and hasattr(
-                        label, "is_argument_row") and label.is_argument_row:
-                    # Remove the associated field widget
-                    field_item = form_layout.itemAt(
-                        i, QtWidgets.QFormLayout.FieldRole)
-                    if field_item:
-                        field_widget = field_item.widget()
-                        if field_widget:
-                            field_widget.setParent(None)
-                            field_widget.deleteLater()
-                    # Remove the label widget
-                    label.setParent(None)
-                    label.deleteLater()
-                    form_layout.removeRow(i)
-
-        if selected_processor != "No Processor":
-            args = Processor.get_args(topic_type, selected_processor)
-            self.processor_args[topic] = {}  # Store argument names and QLineEdit widgets
-
-            for arg_name, (param, doc) in args.items():
-                # Create a QLabel and QLineEdit for each argument
-                label = QtWidgets.QLabel()
-                label.setText(f"{arg_name} (optional)" if param.default != inspect.Parameter.empty else arg_name)
-                label.is_argument_row = True  # Tag this label as an argument row
-
-                # Build placeholder with doc, default, and type
-                parts = []
-                if doc:
-                    parts.append(doc)
-                if param.default != inspect.Parameter.empty:
-                    parts.append(f"default: {param.default}")
-                if param.annotation != inspect.Parameter.empty:
-                    parts.append(f"Type: {param.annotation.__name__}")
-                placeholder_text = " — ".join(parts)
-
-                arg_edit = QtWidgets.QLineEdit()
-                arg_edit.setPlaceholderText(placeholder_text)
-
-                # Add to form layout
-                form_layout.addRow(label, arg_edit)
-
-                # Store input
-                self.processor_args[topic][arg_name] = arg_edit
-        else:
-            # If no processor is selected, clear the stored arguments for this topic
-            self.processor_args[topic] = {}
 
     def get_export_config(self):
         """
@@ -545,7 +687,7 @@ class ExportOptions(QtWidgets.QWidget):
             rel_path = widgets["subdir"]
             name = widgets["naming"]
             master_checkbox = widgets["master_checkbox"]
-            processor = widgets["processor_combo"]
+            proc_chain_widget = widgets.get("processor_chain")
             topic_type = widgets["topic_type"]
 
             base = abs_path.text().strip()
@@ -566,17 +708,10 @@ class ExportOptions(QtWidgets.QWidget):
                 "naming": name.text().strip()
             }
 
-            if processor and processor.currentText() != "No Processor":
-                proc_name = processor.currentText()
-                topic_cfg["processor"] = proc_name
-
-                processor_config = {}
-                processor_args = self.processor_args.get(topic, {})
-                for arg_name, arg_edit in processor_args.items():
-                    arg_value = arg_edit.text().strip()
-                    if arg_value:
-                        processor_config[arg_name] = arg_value
-                topic_cfg["processor_args"] = processor_config
+            if proc_chain_widget:
+                chain = proc_chain_widget.get_chain()
+                if chain:
+                    topic_cfg["processors"] = chain
 
             topics_config[topic] = topic_cfg
 
@@ -616,7 +751,7 @@ class ExportOptions(QtWidgets.QWidget):
             rel_path_edit = widgets["subdir"]
             name_scheme_edit = widgets["naming"]
             is_master_check = widgets["master_checkbox"]
-            proc_combo = widgets["processor_combo"]
+            proc_chain_widget = widgets.get("processor_chain")
             topic_type = widgets["topic_type"]
 
             fmt = topic_cfg.get("format", "")
@@ -638,6 +773,8 @@ class ExportOptions(QtWidgets.QWidget):
             subdir = topic_cfg.get("subfolder", "").strip("/")
             abs_path_edit.setText(path)
             rel_path_edit.setText(subdir)
+            # Ensure the mode combo reflects the loaded configuration even if the format index did not change
+            self._ensure_mode_selection(mode_combo, mode)
             # Set naming scheme
             name_scheme_edit.setText(topic_cfg.get("naming", ""))
             # Set master topic checkbox
@@ -646,26 +783,26 @@ class ExportOptions(QtWidgets.QWidget):
                 is_master_check.setChecked(True)
 
             # Set processor and arguments
-            if proc_combo:
-
-                proc_name = topic_cfg.get("processor", "No Processor")
-                idx = proc_combo.findText(proc_name)
-                if idx >= 0:
-                    proc_combo.setCurrentIndex(idx)
-
-                # Restore processor arguments
-                processor_config = topic_cfg.get("processor_args", {})
-                topic_type = next(
-                    (k for k, v in self.all_topics.items() if topic in v), None)
-                if processor_config and topic_type:
-                    # Dynamically recreate argument fields
-                    self._processor_changed(proc_name, topic, topic_type,
-                                            proc_combo.parent().layout())
-                    for arg_name, arg_value in processor_config.items():
-                        arg_edit = self.processor_args[topic].get(
-                            arg_name, None)
-                        if arg_edit:
-                            arg_edit.setText(str(arg_value))
+            if proc_chain_widget:
+                chain_cfg = topic_cfg.get("processors")
+                if not chain_cfg and topic_cfg.get("processor"):
+                    chain_cfg = [{
+                        "name": topic_cfg["processor"],
+                        "args": topic_cfg.get("processor_args", {}),
+                    }]
+                normalized_chain = []
+                for entry in chain_cfg or []:
+                    if isinstance(entry, str):
+                        normalized_chain.append({"name": entry, "args": {}})
+                    elif isinstance(entry, dict):
+                        name = entry.get("name")
+                        if not name:
+                            continue
+                        args = entry.get("args", {}) or {}
+                        if not isinstance(args, dict):
+                            args = {}
+                        normalized_chain.append({"name": name, "args": args})
+                proc_chain_widget.set_chain(normalized_chain)
 
         # Set global synchronization settings if present
         for topic, topic_cfg in config.items():
@@ -678,6 +815,24 @@ class ExportOptions(QtWidgets.QWidget):
                 if "discard_eps" in rcfg:
                     self.eps_edit.setText(str(rcfg["discard_eps"]))
                 break
+
+    @staticmethod
+    def _ensure_mode_selection(mode_combo: QtWidgets.QComboBox, target_mode):
+        """
+        Make sure the mode combo box reflects the desired export mode, even if the format selection has not emitted a change signal.
+
+        Args:
+            mode_combo: The QComboBox controlling export mode.
+            target_mode: The ExportMode that should be selected.
+        """
+        if mode_combo.count():
+            for idx in range(mode_combo.count()):
+                if mode_combo.itemData(idx) == target_mode:
+                    if mode_combo.currentIndex() != idx:
+                        mode_combo.setCurrentIndex(idx)
+                    return
+        # If the combo has no items (single forced mode), keep the forced mode metadata in sync
+        mode_combo.setProperty("forced_mode", target_mode)
 
     def select_directory_and_apply(self, edit):
         """

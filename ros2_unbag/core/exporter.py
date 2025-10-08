@@ -105,20 +105,12 @@ class Exporter:
                 raise ValueError(f"No export handler found for topic '{topic}' with format '{fmt}'")
             self.topic_handlers[topic] = handler
 
-            # Optional processor
-            if 'processor' in cfg:
-                proc_name = cfg['processor']
-                proc_args = cfg.get('processor_args', {})
-                required_args = Processor.get_required_args(topic_type, proc_name)
-                missing_args = [arg for arg in required_args if arg not in proc_args]
-                if missing_args:
-                    raise ValueError(
-                        f"Missing required arguments for processor '{proc_name}': {', '.join(missing_args)}"
-                    )
-                proc_handler = Processor.get_handler(topic_type, proc_name)
-                self.topic_processors[topic] = (proc_handler, proc_args)
+            # Optional processor chain
+            processor_chain = self._prepare_processor_chain(topic, cfg, topic_type)
+            if processor_chain:
+                self.topic_processors[topic] = processor_chain
             else:
-                self.topic_processors[topic] = None
+                self.topic_processors[topic] = []
 
             # Prepare naming and path
             name_tmpl = cfg['naming']
@@ -615,9 +607,8 @@ class Exporter:
                 topic, msg, full_path, fmt, metadata = task
 
                 # Use pre-fetched processor if available
-                processor = self.topic_processors.get(topic)
-                if processor:
-                    handler, args = processor
+                processor_chain = self.topic_processors.get(topic) or []
+                for handler, args in processor_chain:
                     msg = handler(msg=msg, **args)
 
                 # Use pre-fetched export handler
@@ -656,3 +647,81 @@ class Exporter:
                     # Handle exceptions in progress callback
                     self.logger.error(f"Error in progress callback: {done}/{self.max_progress_count}")
                     pass
+
+    def _prepare_processor_chain(self, topic, cfg, topic_type):
+        """
+        Normalize processor configuration into an ordered list of (handler, args) tuples for a topic.
+
+        Args:
+            topic: Topic name (str).
+            cfg: Topic configuration dictionary.
+            topic_type: ROS message type string.
+
+        Returns:
+            list: Ordered list of (handler, args_dict) tuples.
+        """
+        raw_chain = cfg.get("processors")
+        if raw_chain is None and "processor" in cfg:
+            raw_chain = [{
+                "name": cfg["processor"],
+                "args": cfg.get("processor_args", {}),
+            }]
+
+        if raw_chain is None:
+            return []
+
+        if not isinstance(raw_chain, list):
+            raise ValueError(
+                f"Processors for topic '{topic}' must be provided as a list."
+            )
+
+        normalized = []
+        canonical_chain = []
+
+        for idx, entry in enumerate(raw_chain, start=1):
+            if isinstance(entry, str):
+                proc_name = entry
+                proc_args = {}
+            elif isinstance(entry, dict):
+                if "name" not in entry:
+                    raise ValueError(
+                        f"Processor entry #{idx} for topic '{topic}' is missing the 'name' field."
+                    )
+                proc_name = entry["name"]
+                proc_args = entry.get("args", {})
+                if proc_args is None:
+                    proc_args = {}
+                if not isinstance(proc_args, dict):
+                    raise ValueError(
+                        f"'args' for processor '{proc_name}' on topic '{topic}' must be a dictionary."
+                    )
+            else:
+                raise ValueError(
+                    f"Processor entry #{idx} for topic '{topic}' must be a string or dict."
+                )
+
+            proc_handler = Processor.get_handler(topic_type, proc_name)
+            if proc_handler is None:
+                raise ValueError(
+                    f"No processor handler found for topic '{topic}' with processor '{proc_name}'."
+                )
+
+            required_args = Processor.get_required_args(topic_type, proc_name)
+            missing_args = [arg for arg in required_args if arg not in proc_args]
+            if missing_args:
+                raise ValueError(
+                    f"Missing required arguments for processor '{proc_name}' on topic '{topic}': {', '.join(missing_args)}"
+                )
+
+            normalized.append((proc_handler, dict(proc_args)))
+            canonical_chain.append({
+                "name": proc_name,
+                "args": dict(proc_args),
+            })
+
+        # Update configuration with canonical representation for downstream consumers
+        cfg["processors"] = canonical_chain
+        cfg.pop("processor", None)
+        cfg.pop("processor_args", None)
+
+        return normalized

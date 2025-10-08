@@ -64,7 +64,7 @@ class ExportCommand(CommandExtension):
             help="Optional resampling: /master_topic:association[,discard_eps]")
         parser.add_argument(
             "--processing", "-p", action="append", default=None,
-            help="Processing spec: /topic:processor:[args]. Can be repeated.")
+            help="Processing spec: /topic:processor[:arg=value,…]. Repeat to build processor chains; order matters.")
         parser.add_argument(
             "--cpu-percentage", type=float, default=80.0,
             help="CPU usage for parallel processing")
@@ -288,7 +288,7 @@ class ExportCommand(CommandExtension):
                 topic, processor = parts[0], parts[1]
                 if topic not in config:
                     sys.exit(f"Processing topic {topic} not in --export")
-                config[topic]['processor'] = processor
+                processor_entry = {"name": processor}
                 if len(parts) == 3:
                     arg_list = parts[2].split(",")
                     processor_args = {}
@@ -297,7 +297,8 @@ class ExportCommand(CommandExtension):
                             sys.exit(f"Invalid processor arg: {arg}")
                         k, v = arg.split("=", 1)
                         processor_args[k.strip()] = v.strip()
-                    config[topic]['processor_args'] = processor_args
+                    processor_entry["args"] = processor_args
+                config[topic].setdefault("processors", []).append(processor_entry)
 
         return config
     
