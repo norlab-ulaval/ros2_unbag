@@ -20,15 +20,13 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from collections import defaultdict
 from pathlib import Path
 
 from ros2_unbag.core.routines.base import ExportRoutine, ExportMode, ExportMetadata
 
 
 def setup_function(_):
-    ExportRoutine.registry = defaultdict(list)
-    ExportRoutine.catch_all_registry = defaultdict(list)
+    ExportRoutine.reset_registry()
 
 
 def test_persistent_storage_is_isolated_per_topic(tmp_path: Path):
@@ -69,4 +67,3 @@ def test_persistent_storage_is_isolated_per_topic(tmp_path: Path):
     assert (tmp_path / "a1.out").read_text() == "2"
     assert (tmp_path / "b0.out").read_text() == "1"
     assert (tmp_path / "b1.out").read_text() == "2"
-

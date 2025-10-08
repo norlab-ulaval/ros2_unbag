@@ -63,8 +63,16 @@ class Exporter:
                 raise ValueError(f"Topic '{topic}' not found in bag. Available topics: {list(self.topic_types.keys())}")
 
         self.index_map = {t: 0 for t in self.config}
-        self.export_mode = {t: ExportRoutine.get_mode(self.topic_types[t], self.config[t]['format'])
-                            for t in self.config}
+        self._resolved_formats = {}
+        for topic, cfg in self.config.items():
+            fmt = cfg['format']
+            topic_type = self.topic_types[topic]
+            resolution = ExportRoutine.resolve(topic_type, fmt)
+            if resolution is None:
+                raise ValueError(f"No export handler found for topic '{topic}' with format '{fmt}'")
+            self._resolved_formats[topic] = resolution
+
+        self.export_mode = {t: resolved[2] for t, resolved in self._resolved_formats.items()}
         self.sequential_topics = [t for t, m in self.export_mode.items() if m == ExportMode.SINGLE_FILE]
 
 
@@ -89,12 +97,13 @@ class Exporter:
 
             fmt = cfg['format']
             topic_type = self.topic_types[topic]
+            routine, canonical_fmt, mode = self._resolved_formats[topic]
 
             # Export handler
-            self.topic_handlers[topic] = ExportRoutine.get_handler(topic_type, fmt)
-            
-            if self.topic_handlers[topic] is None:
+            handler = routine.func
+            if handler is None:
                 raise ValueError(f"No export handler found for topic '{topic}' with format '{fmt}'")
+            self.topic_handlers[topic] = handler
 
             # Optional processor
             if 'processor' in cfg:
@@ -135,9 +144,9 @@ class Exporter:
             if not hasattr(self, "_topic_cache"):
                 self._topic_cache = {}
             self._topic_cache[topic] = {
-                "fmt": fmt,
-                "mode": self.export_mode[topic],
-                "sequential": (self.export_mode[topic] == ExportMode.SINGLE_FILE),
+                "fmt": canonical_fmt,
+                "mode": mode,
+                "sequential": (mode == ExportMode.SINGLE_FILE),
                 "topic_base": topic.strip("/").replace("/", "_"),
                 "name_tmpl": name_tmpl,
                 "path_tmpl": path_tmpl,

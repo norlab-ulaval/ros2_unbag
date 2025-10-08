@@ -224,10 +224,26 @@ class ExportCommand(CommandExtension):
                 sys.exit(f"Invalid --export: {spec}")
             topic, fmt = parts[0], parts[1]
             subdir = parts[2] if len(parts) > 2 else ""
+
+            # Find topic and determine type
             if topic not in bag_reader.topic_types:
                 sys.exit(f"Topic {topic} not found in bag.")
             topic_type = bag_reader.topic_types[topic]
-            mode = ExportRoutine.get_mode(topic_type, fmt)
+
+            # Determine routine and mode
+            resolution = ExportRoutine.resolve(topic_type, fmt)
+            if resolution is None:
+                sys.exit(f"No export routine found for topic type '{topic_type}' with format '{fmt}'.")
+            _, canonical_fmt, mode = resolution
+            available_modes = set(ExportRoutine.get_modes_for_format(topic_type, canonical_fmt))
+            if mode == ExportMode.SINGLE_FILE and len(available_modes) > 1:
+                fmt = f"{canonical_fmt}@single_file"
+            elif mode == ExportMode.MULTI_FILE and len(available_modes) > 1 and "@" in fmt:
+                fmt = f"{canonical_fmt}@multi_file"
+            else:
+                fmt = canonical_fmt
+
+            # Determine naming pattern
             if provided_naming is None:
                 if mode == ExportMode.SINGLE_FILE:
                     naming = "%name"

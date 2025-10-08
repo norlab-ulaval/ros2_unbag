@@ -231,6 +231,11 @@ class ExportOptions(QtWidgets.QWidget):
             fmt_combo = QtWidgets.QComboBox()
             fmt_combo.addItems(ExportRoutine.get_formats(topic_type))
 
+            mode_label = QtWidgets.QLabel("Mode")
+            mode_combo = QtWidgets.QComboBox()
+            mode_label.setVisible(False)
+            mode_combo.setVisible(False)
+
             # Output directory
             abs_path_edit = QtWidgets.QLineEdit()
             abs_path_edit.setText(str(self.default_folder))
@@ -250,18 +255,95 @@ class ExportOptions(QtWidgets.QWidget):
             # Subdirectory and naming scheme
             rel_path_edit = QtWidgets.QLineEdit("%name")
             name_scheme_edit = QtWidgets.QLineEdit()
-            
+
             # Dynamic update based on format selection
-            def update_naming_and_checkbox(fmt, name_edit=name_scheme_edit, t_type=topic_type):
-                mode = ExportRoutine.get_mode(t_type, fmt)
-                if mode == ExportMode.SINGLE_FILE:
+            def _apply_default_naming(name_edit: QtWidgets.QLineEdit, selected_mode: ExportMode):
+                """
+                Update the naming scheme QLineEdit based on the selected export mode.
+                If SINGLE_FILE is selected, use "%name"; if MULTI_FILE, use "%name_%index".
+
+                Args:
+                    name_edit: QLineEdit for naming scheme.
+                    selected_mode: Currently selected ExportMode.
+                
+                Returns:
+                    None
+                """
+                if selected_mode == ExportMode.SINGLE_FILE:
                     name_edit.setText("%name")
                 else:
                     name_edit.setText("%name_%index")
 
-            # Connect format selection to update naming and checkbox
-            fmt_combo.currentTextChanged.connect(update_naming_and_checkbox)
-            update_naming_and_checkbox(fmt_combo.currentText())
+            def _refresh_mode_controls(selected_fmt: str, *, combo=mode_combo,
+                                       label=mode_label, name_edit=name_scheme_edit,
+                                       t_type=topic_type):
+                """
+                Update mode selection controls based on selected format and available modes.
+                If multiple modes are available, show the combo box; otherwise, hide it and set the only mode.
+
+                Args:
+                    selected_fmt: Currently selected format string.
+                    combo: QComboBox for mode selection.
+                    label: QLabel for the mode combo box.
+                    name_edit: QLineEdit for naming scheme.
+                    t_type: Message type string.
+
+                Returns:
+                    None
+                """
+                modes = list(ExportRoutine.get_modes_for_format(t_type, selected_fmt))
+                if not modes:
+                    modes = [ExportMode.MULTI_FILE]
+                preferred_mode = combo.property("pending_mode")
+                combo.setProperty("pending_mode", None)
+                combo.blockSignals(True)
+                combo.clear()
+                ordered_modes = sorted(modes, key=lambda m: 0 if m == ExportMode.MULTI_FILE else 1)
+
+                if len(ordered_modes) > 1:
+                    for mode_option in ordered_modes:
+                        label_text = "Multi file" if mode_option == ExportMode.MULTI_FILE else "Single file"
+                        combo.addItem(label_text, mode_option)
+                    if preferred_mode in ordered_modes:
+                        idx = combo.findData(preferred_mode)
+                        if idx >= 0:
+                            combo.setCurrentIndex(idx)
+                    else:
+                        combo.setCurrentIndex(0)
+                    combo.setProperty("forced_mode", None)
+                    current_mode = combo.currentData()
+                    combo.setVisible(True)
+                    label.setVisible(True)
+                else:
+                    only_mode = ordered_modes[0]
+                    combo.setProperty("forced_mode", only_mode)
+                    current_mode = only_mode
+                    combo.setVisible(False)
+                    label.setVisible(False)
+                combo.setProperty("available_modes", tuple(ordered_modes))
+                combo.blockSignals(False)
+                _apply_default_naming(name_edit, current_mode)
+
+            def _mode_changed(_, combo=mode_combo, name_edit=name_scheme_edit):
+                """
+                Callback for when the mode selection changes; update naming scheme accordingly.
+                
+                Args:
+                    _: Ignored parameter (index).
+                    combo: QComboBox for mode selection.
+                    name_edit: QLineEdit for naming scheme.
+
+                Returns:
+                    None
+                """
+                mode_value = combo.currentData()
+                if mode_value is None:
+                    mode_value = combo.property("forced_mode") or ExportMode.MULTI_FILE
+                _apply_default_naming(name_edit, mode_value)
+
+            mode_combo.currentIndexChanged.connect(_mode_changed)
+            fmt_combo.currentTextChanged.connect(_refresh_mode_controls)
+            _refresh_mode_controls(fmt_combo.currentText())
 
             # Master checkbox (mutually exclusive)
             is_master_check = QtWidgets.QCheckBox(
@@ -282,6 +364,7 @@ class ExportOptions(QtWidgets.QWidget):
                 proc_combo = None
 
             form_layout.addRow("Format", fmt_combo)
+            form_layout.addRow(mode_label, mode_combo)
             form_layout.addRow("Output Directory", path_layout)
             form_layout.addRow("Subdirectory", rel_path_edit)
             form_layout.addRow("Naming", name_scheme_edit)
@@ -292,9 +375,17 @@ class ExportOptions(QtWidgets.QWidget):
             group_box.setLayout(form_layout)
             layout.addWidget(group_box)
 
-            self.config_widgets[topic] = (fmt_combo, abs_path_edit,
-                                          rel_path_edit, name_scheme_edit,
-                                          is_master_check, proc_combo)
+            self.config_widgets[topic] = {
+                "topic_type": topic_type,
+                "format_combo": fmt_combo,
+                "mode_combo": mode_combo,
+                "mode_label": mode_label,
+                "output_dir": abs_path_edit,
+                "subdir": rel_path_edit,
+                "naming": name_scheme_edit,
+                "master_checkbox": is_master_check,
+                "processor_combo": proc_combo,
+            }
 
         # ────────── Help ──────────
         note = QtWidgets.QLabel(
@@ -448,16 +539,28 @@ class ExportOptions(QtWidgets.QWidget):
             }
 
         for topic, widgets in self.config_widgets.items():
-            if assoc_mode == "no resampling":
-                fmt, abs_path, rel_path, name, _, processor = widgets
-            else:
-                fmt, abs_path, rel_path, name, is_master, processor = widgets
+            fmt_combo = widgets["format_combo"]
+            mode_combo = widgets["mode_combo"]
+            abs_path = widgets["output_dir"]
+            rel_path = widgets["subdir"]
+            name = widgets["naming"]
+            master_checkbox = widgets["master_checkbox"]
+            processor = widgets["processor_combo"]
+            topic_type = widgets["topic_type"]
 
             base = abs_path.text().strip()
             sub = rel_path.text().strip().lstrip("/")
 
+            mode_value = mode_combo.currentData() if mode_combo.isVisible() else mode_combo.property("forced_mode")
+            if mode_value is None:
+                mode_value = ExportMode.MULTI_FILE
+            available_modes = mode_combo.property("available_modes") or tuple()
+            fmt_value = fmt_combo.currentText()
+            if mode_value == ExportMode.SINGLE_FILE and len(available_modes) > 1:
+                fmt_value = f"{fmt_value}@single_file"
+
             topic_cfg = {
-                "format": fmt.currentText(),
+                "format": fmt_value,
                 "path": base,
                 "subfolder": sub,
                 "naming": name.text().strip()
@@ -507,12 +610,29 @@ class ExportOptions(QtWidgets.QWidget):
                     f"Topic '{topic}' not found in the bag. Cannot set export config properly."
                 )
 
-            fmt_combo, abs_path_edit, rel_path_edit, name_scheme_edit, is_master_check, proc_combo = widgets
-            # Set format
+            fmt_combo = widgets["format_combo"]
+            mode_combo = widgets["mode_combo"]
+            abs_path_edit = widgets["output_dir"]
+            rel_path_edit = widgets["subdir"]
+            name_scheme_edit = widgets["naming"]
+            is_master_check = widgets["master_checkbox"]
+            proc_combo = widgets["processor_combo"]
+            topic_type = widgets["topic_type"]
+
             fmt = topic_cfg.get("format", "")
-            idx = fmt_combo.findText(fmt)
+            resolution = ExportRoutine.resolve(topic_type, fmt)
+            if resolution is None:
+                raise ValueError(
+                    f"No export routine found for topic '{topic}' with format '{fmt}'."
+                )
+            _, canonical_fmt, mode = resolution
+            mode_combo.setProperty("pending_mode", mode)
+            idx = fmt_combo.findText(canonical_fmt)
             if idx >= 0:
                 fmt_combo.setCurrentIndex(idx)
+            else:
+                fmt_combo.addItem(canonical_fmt)
+                fmt_combo.setCurrentIndex(fmt_combo.count() - 1)
             # Set output path and subdirectory
             path = topic_cfg.get("path", "")
             subdir = topic_cfg.get("subfolder", "").strip("/")

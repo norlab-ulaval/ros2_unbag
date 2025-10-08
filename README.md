@@ -222,15 +222,15 @@ Export routines define the way how messages are exported from the ros2 bag file 
 
 ***Note:** Point data in PCD files is written with all fields, that are present in the `PointCloud2` message. Some programs do not support arbitrary fields in PCD files. If you need to export only specific fields, you can use the `remove_fields` processor to drop unwanted fields before exporting. See the [Processors](#processors) section for more information.*
 
-In addition to these specialized routines, there are also generic routines for exporting any message type to common formats. These are available as `@single_file` and `@multi_file` variants, which determine whether all messages are written to a single file or each message is written to its own file:
+In addition to these specialized routines, there are also generic routines for exporting any message type to common formats. They share the same base identifier (e.g. `table/csv`) and can operate either in single-file or multi-file mode. When both modes are available, selecting the base identifier defaults to the multi-file variant; you can explicitly request a mode using `@single_file` or `@multi_file` if you need to override that default.
 
 | Identifier    | Topic(s)             | `@single_file` Description                                                      | `@multi_file` Description                                                         |
 | ------------- | -------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | **table/csv** | *any message type*   | Flattens fields, writes header + one row per message into a single `.csv` file. | Flattens fields, writes header + one message per file into separate `.csv` files. |
-| **text/json** | *any message type*   | All messages in one `.json` file as a list of objects.                          | One `.json` file per message.                                                     |
+| **text/json** | *any message type*   | All messages in one `.json` file as a map keyed by timestamp.                   | One `.json` file per message.                                                     |
 | **text/yaml** | *any message type*   | One `.yaml` document containing all messages in a single `.yaml` file.          | One `.yaml` document per message.                                                 |
 
-You can call these as `table/csv@single_file` or `table/csv@multi_file`.
+Use just the base identifier (e.g. `table/csv`) to pick the default behaviour. Append `@single_file` or `@multi_file` to force a specific mode when both are supported.
 
 ### Custom Export Routines
 Your message type or output format is not supported by default? No problem! You can add your own export routines to handle custom message types or output formats.
