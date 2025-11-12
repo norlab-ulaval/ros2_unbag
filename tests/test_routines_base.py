@@ -20,7 +20,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from collections import defaultdict
 from pathlib import Path
 
 from ros2_unbag.core.routines.base import ExportRoutine, ExportMode, ExportMetadata
@@ -28,40 +27,68 @@ from ros2_unbag.core.routines.base import ExportRoutine, ExportMode, ExportMetad
 
 def setup_function(_):
     # Reset registries before each test
-    ExportRoutine.registry = defaultdict(list)
-    ExportRoutine.catch_all_registry = defaultdict(list)
+    ExportRoutine.reset_registry()
 
 
 def test_catch_all_registration_and_queries(tmp_path: Path):
     calls = []
 
-    @ExportRoutine.set_catch_all(["text/custom@multi_file"], mode=ExportMode.MULTI_FILE)
-    def do_export(msg, path: Path, fmt: str, metadata: ExportMetadata):
+    @ExportRoutine.set_catch_all(["text/custom"], mode=ExportMode.MULTI_FILE)
+    def export_multi(msg, path: Path, fmt: str, metadata: ExportMetadata):
         # Record a call and write a file to prove invocation
-        calls.append((fmt, metadata.index))
+        calls.append(("multi", fmt, metadata.index))
+        p = Path(str(path) + ".multi")
+        p.write_text("multi")
+
+    @ExportRoutine.set_catch_all(["text/custom"], mode=ExportMode.SINGLE_FILE)
+    def export_single(msg, path: Path, fmt: str, metadata: ExportMetadata):
+        calls.append(("single", fmt, metadata.index))
         p = Path(str(path) + ".out")
         p.write_text("ok")
 
-    # Formats include catch-all
-    assert "text/custom@multi_file" in ExportRoutine.get_formats("any/msg")
+    # Only the base format is advertised
+    assert ExportRoutine.get_formats("any/msg") == ["text/custom"]
 
-    # Handler lookup falls back to catch-all
-    handler = ExportRoutine.get_handler("any/msg", "text/custom@multi_file")
-    assert callable(handler)
+    # Default (no suffix) resolves to multi
+    assert ExportRoutine.get_mode("any/msg", "text/custom") == ExportMode.MULTI_FILE
 
-    # Mode is from catch-all
+    # Explicit suffix resolves accordingly
+    assert ExportRoutine.get_mode("any/msg", "text/custom@single_file") == ExportMode.SINGLE_FILE
     assert ExportRoutine.get_mode("any/msg", "text/custom@multi_file") == ExportMode.MULTI_FILE
 
-    # Invoke through handler (with topic to test persistent storage isolation)
-    md1 = ExportMetadata(index=0, max_index=0)
-    handler(msg=object(), path=tmp_path / "file1", fmt="text/custom@multi_file", metadata=md1, topic="/a")
+    # Handler lookup works with and without suffixes
+    multi_handler = ExportRoutine.get_handler("any/msg", "text/custom")
+    single_handler = ExportRoutine.get_handler("any/msg", "text/custom@single_file")
+    assert callable(multi_handler)
+    assert callable(single_handler)
+
+    # Invoke through handlers to ensure canonical fmt is passed into routines
+    md1 = ExportMetadata(index=0, max_index=1)
+    multi_handler(msg=object(), path=tmp_path / "file1", fmt="text/custom", metadata=md1, topic="/a")
     md2 = ExportMetadata(index=1, max_index=1)
-    handler(msg=object(), path=tmp_path / "file2", fmt="text/custom@multi_file", metadata=md2, topic="/b")
+    single_handler(msg=object(), path=tmp_path / "file2", fmt="text/custom@single_file", metadata=md2, topic="/b")
 
-    # Calls recorded
-    assert calls == [("text/custom@multi_file", 0), ("text/custom@multi_file", 1)]
+    assert calls == [
+        ("multi", "text/custom", 0),
+        ("single", "text/custom", 1),
+    ]
 
-    # Files written
-    assert (tmp_path / "file1.out").exists()
+    assert (tmp_path / "file1.multi").exists()
     assert (tmp_path / "file2.out").exists()
 
+
+def test_single_mode_default_access(tmp_path: Path):
+    ExportRoutine.reset_registry()
+    calls = []
+
+    @ExportRoutine.set_catch_all(["text/only"], mode=ExportMode.SINGLE_FILE)
+    def export_single(msg, path: Path, fmt: str, metadata: ExportMetadata):
+        calls.append(fmt)
+
+    assert ExportRoutine.get_formats("any/msg") == ["text/only"]
+    assert ExportRoutine.get_mode("any/msg", "text/only") == ExportMode.SINGLE_FILE
+    assert ExportRoutine.get_mode("any/msg", "text/only@single_file") == ExportMode.SINGLE_FILE
+
+    handler = ExportRoutine.get_handler("any/msg", "text/only")
+    handler(msg=object(), path=tmp_path / "x", fmt="text/only", metadata=ExportMetadata(index=0, max_index=0))
+    assert calls == ["text/only"]

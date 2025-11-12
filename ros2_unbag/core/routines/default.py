@@ -30,7 +30,7 @@ from ros2_unbag.core.routines.base import ExportRoutine, ExportMode, ExportMetad
 from ros2_unbag.core.utils.file_utils import get_time_from_msg
 
 
-@ExportRoutine.set_catch_all(["text/json@multi_file", "text/yaml@multi_file", "table/csv@multi_file"], mode=ExportMode.MULTI_FILE)
+@ExportRoutine.set_catch_all(["text/json", "text/yaml", "table/csv"], mode=ExportMode.MULTI_FILE)
 def export_generic_multi_file(msg, path: Path, fmt: str, metadata: ExportMetadata):
     """
     Generic export handler supporting JSON, YAML, and CSV formats. 
@@ -39,7 +39,7 @@ def export_generic_multi_file(msg, path: Path, fmt: str, metadata: ExportMetadat
     Args:
         msg: ROS message instance to export.
         path: Output file path (without extension).
-        fmt: Export format string ("text/yaml@multi_file", "text/json@multi_file", "table/csv@multi_file").
+        fmt: Export format string ("text/yaml", "text/json", "table/csv").
         metadata: Export metadata including message index and max index.
 
     Returns:
@@ -47,23 +47,22 @@ def export_generic_multi_file(msg, path: Path, fmt: str, metadata: ExportMetadat
     """
     timestamp = get_time_from_msg(msg, return_datetime=True)
 
-    if fmt == "text/json@multi_file":
-        serialized_line = _serialize_message_with_timestamp(msg, "json", timestamp)
+    if fmt == "text/json":
+        payload = _serialize_message_with_timestamp(msg, "json", timestamp)
         file_ending = ".json"
-    elif fmt == "text/yaml@multi_file":
-        serialized_line = _serialize_message_with_timestamp(msg, "yaml", timestamp)
+    elif fmt == "text/yaml":
+        payload = _serialize_message_with_timestamp(msg, "yaml", timestamp)
         file_ending = ".yaml"
-    elif fmt == "table/csv@multi_file":
-        header, values = _serialize_message_with_timestamp(msg, "csv", timestamp)
+    elif fmt == "table/csv":
+        payload = _serialize_message_with_timestamp(msg, "csv", timestamp)
         file_ending = ".csv"
 
     # Save the serialized message to a file
     with open(path.with_suffix(file_ending), "w") as f:
-        # Write the serialized line to the file
-        _write_line(f, serialized_line if fmt != "table/csv@multi_file" else [header, values], fmt, True, True)
+        _write_line(f, payload, fmt, True, True)
 
 
-@ExportRoutine.set_catch_all(["text/json@single_file", "text/yaml@single_file", "table/csv@single_file"], mode=ExportMode.SINGLE_FILE)
+@ExportRoutine.set_catch_all(["text/json", "text/yaml", "table/csv"], mode=ExportMode.SINGLE_FILE)
 def export_generic_single_file(msg, path: Path, fmt: str, metadata: ExportMetadata):
     """
     Generic export handler supporting JSON, YAML, and CSV formats.
@@ -72,7 +71,7 @@ def export_generic_single_file(msg, path: Path, fmt: str, metadata: ExportMetada
     Args:
         msg: ROS message instance to export.
         path: Output file path (without extension).
-        fmt: Export format string ("text/yaml@single_file", "text/json@single_file", "table/csv@single_file").
+        fmt: Export format string ("text/yaml", "text/json", "table/csv").
         metadata: Export metadata including message index and max index.
 
     Returns:
@@ -80,14 +79,14 @@ def export_generic_single_file(msg, path: Path, fmt: str, metadata: ExportMetada
     """
     timestamp = get_time_from_msg(msg, return_datetime=True)
 
-    if fmt == "text/json@single_file":
-        serialized_line = _serialize_message_with_timestamp(msg, "json", timestamp)
+    if fmt == "text/json":
+        payload = _serialize_message_with_timestamp(msg, "json", timestamp)
         file_ending = ".json"
-    elif fmt == "text/yaml@single_file":
-        serialized_line = _serialize_message_with_timestamp(msg, "yaml", timestamp)
+    elif fmt == "text/yaml":
+        payload = _serialize_message_with_timestamp(msg, "yaml", timestamp)
         file_ending = ".yaml"
-    elif fmt == "table/csv@single_file":
-        header, values = _serialize_message_with_timestamp(msg, "csv", timestamp)
+    elif fmt == "table/csv":
+        payload = _serialize_message_with_timestamp(msg, "csv", timestamp)
         file_ending = ".csv"
 
     # Determine if this is the first or last message for the file
@@ -96,12 +95,12 @@ def export_generic_single_file(msg, path: Path, fmt: str, metadata: ExportMetada
 
     # Save the serialized message to a file - if the filename is constant, messages will be appended
     with open(path.with_suffix(file_ending), "a+") as f:
-        if metadata.index == 0:
+        if is_first:
             # clear the file if this is the first message
             f.seek(0)
             f.truncate()
-        # Write the serialized line to the file
-        _write_line(f, serialized_line if fmt != "table/csv@single_file" else [header, values], fmt, is_first, is_last)
+        # Write payload line to the file
+        _write_line(f, payload, fmt, is_first, is_last)
 
 
 def _serialize_message_with_timestamp(msg, fmt, timestamp):

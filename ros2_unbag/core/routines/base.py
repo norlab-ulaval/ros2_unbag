@@ -23,6 +23,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import Dict, Iterable, Optional, Tuple
 
 
 class ExportMode(Enum):
@@ -36,8 +37,12 @@ class ExportMetadata:
     
 class ExportRoutine:
     # Registry for export routines by message type and format
-    registry = defaultdict(list)
-    catch_all_registry = defaultdict(list)
+    registry = defaultdict(lambda: defaultdict(dict))
+    catch_all_registry = defaultdict(dict)
+    _MODE_SUFFIX = {
+        ExportMode.SINGLE_FILE: "single_file",
+        ExportMode.MULTI_FILE: "multi_file",
+    }
 
     def __init__(self, msg_types, formats, mode):
         """
@@ -53,7 +58,7 @@ class ExportRoutine:
         """
         self.msg_types = msg_types if isinstance(msg_types,
                                                  list) else [msg_types]
-        self.formats = formats
+        self.formats = [self._normalize_registered_format(fmt, mode) for fmt in formats]
         self.mode = mode
         self.__class__.register(self)
 
@@ -71,12 +76,27 @@ class ExportRoutine:
 
         def wrapper(msg, path, fmt, metadata, topic=None):
             wrapper.persistent_storage = storage[topic] if topic else {}
-            return func(msg, path, fmt, metadata)
+            canonical_fmt, _ = ExportRoutine._split_format(fmt)
+            return func(msg, path, canonical_fmt, metadata)
 
         wrapper.persistent_storage = {}  # Initialize persistent storage
         self.func = wrapper
         return wrapper
 
+
+    @classmethod
+    def reset_registry(cls):
+        """
+        Reset the routine registry and catch-all registry. Primarily intended for testing.
+
+        Args:
+            None
+    
+        Returns:
+            None
+        """
+        cls.registry = defaultdict(lambda: defaultdict(dict))
+        cls.catch_all_registry = defaultdict(dict)
 
     @classmethod
     def register(cls, routine):
@@ -90,7 +110,10 @@ class ExportRoutine:
             None
         """
         for msg_type in routine.msg_types:
-            cls.registry[msg_type].append(routine)
+            if msg_type is None:
+                continue
+            for base_fmt in routine.formats:
+                cls.registry[msg_type][base_fmt][routine.mode] = routine
 
     @classmethod
     def get_formats(cls, msg_type):
@@ -104,9 +127,19 @@ class ExportRoutine:
             list: List of supported format strings.
         """
         supported_formats = []
-        if msg_type in cls.registry:
-            supported_formats.extend(fmt for r in cls.registry[msg_type] for fmt in r.formats)
-        supported_formats.extend(cls.catch_all_registry.keys())
+        seen = set()
+
+        specific = cls.registry.get(msg_type, {})
+        for base_fmt in specific:
+            if base_fmt not in seen:
+                supported_formats.append(base_fmt)
+                seen.add(base_fmt)
+
+        for base_fmt in cls.catch_all_registry:
+            if base_fmt not in seen and cls._get_modes_for(msg_type, base_fmt):
+                supported_formats.append(base_fmt)
+                seen.add(base_fmt)
+
         return supported_formats
 
     @classmethod
@@ -121,12 +154,11 @@ class ExportRoutine:
         Returns:
             function or None: Export handler function or None if not found.
         """
-        for r in cls.registry.get(msg_type, []):
-            if fmt in r.formats:
-                return r.func
-        for r in cls.catch_all_registry.get(fmt, []):
-            return r.func
-        return None
+        resolved = cls.resolve(msg_type, fmt)
+        if not resolved:
+            return None
+        routine, _, _ = resolved
+        return routine.func
     
     @classmethod
     def get_mode(cls, msg_type, fmt):
@@ -140,12 +172,55 @@ class ExportRoutine:
         Returns:
             ExportMode: The export mode for the given message type and format.
         """
-        for r in cls.registry.get(msg_type, []):
-            if fmt in r.formats:
-                return r.mode
-        for r in cls.catch_all_registry.get(fmt, []):
-            return r.mode
-        return None
+        resolved = cls.resolve(msg_type, fmt)
+        if not resolved:
+            return None
+        _, _, mode = resolved
+        return mode
+
+    @classmethod
+    def resolve(cls, msg_type, fmt: str) -> Optional[Tuple["ExportRoutine", str, ExportMode]]:
+        """
+        Resolve a format string to the registered routine, returning the routine, canonical format name and mode.
+
+        Args:
+            msg_type: Message type string.
+            fmt: User supplied format string (with or without @ modifier).
+
+        Returns:
+            tuple or None: (ExportRoutine, canonical_format, ExportMode) or None if not found.
+        """
+        base_fmt, explicit_mode = cls._split_format(fmt)
+        candidates = cls._get_modes_for(msg_type, base_fmt)
+        if not candidates:
+            return None
+
+        if explicit_mode:
+            routine = candidates.get(explicit_mode)
+            if not routine:
+                return None
+            return routine, base_fmt, explicit_mode
+
+        selected_mode = (ExportMode.MULTI_FILE
+                         if ExportMode.MULTI_FILE in candidates
+                         else next(iter(candidates)))
+        routine = candidates[selected_mode]
+        return routine, base_fmt, selected_mode
+
+    @classmethod
+    def get_modes_for_format(cls, msg_type, fmt: str) -> Iterable[ExportMode]:
+        """
+        Return the available modes for a given message type and format string.
+
+        Args:
+            msg_type: Message type string.
+            fmt: Export format string.
+
+        Returns:
+            Iterable[ExportMode]: List of available export modes.
+        """
+        base_fmt, _ = cls._split_format(fmt)
+        return cls._get_modes_for(msg_type, base_fmt).keys()
 
     @classmethod
     def set_catch_all(cls, formats, mode):
@@ -161,7 +236,94 @@ class ExportRoutine:
         def decorator(func):
             routine = ExportRoutine(msg_types=[], formats=formats, mode=mode)
             wrapped_func = routine(func)
-            for fmt in formats:
-                cls.catch_all_registry[fmt].append(routine)
+            for base_fmt in routine.formats:
+                cls.catch_all_registry[base_fmt][mode] = routine
             return wrapped_func
         return decorator
+
+    @classmethod
+    def _get_modes_for(cls, msg_type: str, base_fmt: str) -> Dict[ExportMode, "ExportRoutine"]:
+        """
+        Retrieve all available export modes for a given message type and base format, including catch-all.
+
+        Args:
+            msg_type: Message type string.
+            base_fmt: Base export format string (without @ modifier).
+
+        Returns:
+            Dict[ExportMode, ExportRoutine]: Dictionary mapping ExportMode to ExportRoutine.
+        """
+        modes: Dict[ExportMode, ExportRoutine] = {}
+        specific = cls.registry.get(msg_type, {})
+        if base_fmt in specific:
+            modes.update(specific[base_fmt])
+
+        catch_all = cls.catch_all_registry.get(base_fmt, {})
+        for mode, routine in catch_all.items():
+            modes.setdefault(mode, routine)
+        return modes
+
+    @classmethod
+    def _normalize_registered_format(cls, fmt: str, mode: ExportMode) -> str:
+        """
+        Normalize a registered format string by ensuring it matches the routine's mode.
+        
+        Args:
+            fmt: Export format string (possibly with @ modifier).
+            mode: ExportMode of the routine.
+        
+        Returns:
+            str: Canonical base format string without @ modifier.
+        
+        Raises:
+            ValueError: If the format string's mode conflicts with the routine's mode.
+        """
+        base_fmt, embedded_mode = cls._split_format(fmt, strict=True)
+        if embedded_mode and embedded_mode != mode:
+            raise ValueError(
+                f"Format '{fmt}' declares @{cls._MODE_SUFFIX.get(embedded_mode)} but routine is registered as {mode}."
+            )
+        return base_fmt
+
+    @classmethod
+    def _split_format(cls, fmt: str, strict: bool = False) -> Tuple[str, Optional[ExportMode]]:
+        """
+        Split a format string into its base format and optional mode suffix.
+        
+        Args:
+            fmt: Export format string (possibly with @ modifier).
+            strict: If True, raise an error for unknown suffixes.
+        
+        Returns:
+            tuple: (base_format, ExportMode or None)
+        
+        Raises:
+            ValueError: If strict is True and the suffix is unknown.
+        """
+        fmt = fmt.strip()
+        if "@" not in fmt:
+            return fmt, None
+        base, suffix = fmt.rsplit("@", 1)
+        mode = cls._mode_from_suffix(suffix)
+        if mode is None:
+            if strict:
+                raise ValueError(f"Unknown export mode suffix '@{suffix}' in format '{fmt}'.")
+            return fmt, None
+        return base, mode
+
+    @classmethod
+    def _mode_from_suffix(cls, suffix: str) -> Optional[ExportMode]:
+        """
+        Convert a suffix string to its corresponding ExportMode.
+
+        Args:
+            suffix: Suffix string (e.g., "single_file", "multi_file").
+            
+        Returns:
+            ExportMode or None: Corresponding ExportMode or None if not found.
+        """
+        suffix = suffix.strip().lower()
+        for mode, token in cls._MODE_SUFFIX.items():
+            if suffix == token:
+                return mode
+        return None

@@ -64,7 +64,7 @@ class ExportCommand(CommandExtension):
             help="Optional resampling: /master_topic:association[,discard_eps]")
         parser.add_argument(
             "--processing", "-p", action="append", default=None,
-            help="Processing spec: /topic:processor:[args]. Can be repeated.")
+            help="Processing spec: /topic:processor[:arg=value,…]. Repeat to build processor chains; order matters.")
         parser.add_argument(
             "--cpu-percentage", type=float, default=80.0,
             help="CPU usage for parallel processing")
@@ -224,10 +224,26 @@ class ExportCommand(CommandExtension):
                 sys.exit(f"Invalid --export: {spec}")
             topic, fmt = parts[0], parts[1]
             subdir = parts[2] if len(parts) > 2 else ""
+
+            # Find topic and determine type
             if topic not in bag_reader.topic_types:
                 sys.exit(f"Topic {topic} not found in bag.")
             topic_type = bag_reader.topic_types[topic]
-            mode = ExportRoutine.get_mode(topic_type, fmt)
+
+            # Determine routine and mode
+            resolution = ExportRoutine.resolve(topic_type, fmt)
+            if resolution is None:
+                sys.exit(f"No export routine found for topic type '{topic_type}' with format '{fmt}'.")
+            _, canonical_fmt, mode = resolution
+            available_modes = set(ExportRoutine.get_modes_for_format(topic_type, canonical_fmt))
+            if mode == ExportMode.SINGLE_FILE and len(available_modes) > 1:
+                fmt = f"{canonical_fmt}@single_file"
+            elif mode == ExportMode.MULTI_FILE and len(available_modes) > 1 and "@" in fmt:
+                fmt = f"{canonical_fmt}@multi_file"
+            else:
+                fmt = canonical_fmt
+
+            # Determine naming pattern
             if provided_naming is None:
                 if mode == ExportMode.SINGLE_FILE:
                     naming = "%name"
@@ -272,7 +288,7 @@ class ExportCommand(CommandExtension):
                 topic, processor = parts[0], parts[1]
                 if topic not in config:
                     sys.exit(f"Processing topic {topic} not in --export")
-                config[topic]['processor'] = processor
+                processor_entry = {"name": processor}
                 if len(parts) == 3:
                     arg_list = parts[2].split(",")
                     processor_args = {}
@@ -281,7 +297,8 @@ class ExportCommand(CommandExtension):
                             sys.exit(f"Invalid processor arg: {arg}")
                         k, v = arg.split("=", 1)
                         processor_args[k.strip()] = v.strip()
-                    config[topic]['processor_args'] = processor_args
+                    processor_entry["args"] = processor_args
+                config[topic].setdefault("processors", []).append(processor_entry)
 
         return config
     

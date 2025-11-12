@@ -9,7 +9,7 @@ from ros2_unbag.core.routines.base import ExportRoutine, ExportMode, ExportMetad
 ## MULTI-FILE EXPORT ROUTINE TEMPLATE
 # Define the export routine class with the appropriate message types and give it a name. The mode determines if the routine will run parallel or sequential.
 @ExportRoutine("std_msgs/msg/String", ["text/plain"], mode=ExportMode.MULTI_FILE)
-def your_export_routine(msg, path: Path, fmt: str, metadata: ExportMetadata):
+def your_export_routine_multi(msg, path: Path, fmt: str, metadata: ExportMetadata):
     """
     Short description of what the export routine does.
 
@@ -37,7 +37,7 @@ def your_export_routine(msg, path: Path, fmt: str, metadata: ExportMetadata):
 ## SINGLE-FILE EXPORT ROUTINE TEMPLATE
 # Define the export routine class with the appropriate message types and give it a name. The mode determines if the routine will run parallel or sequential.
 @ExportRoutine("std_msgs/msg/String", ["text/plain"], mode=ExportMode.SINGLE_FILE)
-def your_export_routine(msg, path: Path, fmt: str, metadata: ExportMetadata):
+def your_export_routine_single(msg, path: Path, fmt: str, metadata: ExportMetadata):
     """
     Short description of what the export routine does.
 
@@ -57,7 +57,7 @@ def your_export_routine(msg, path: Path, fmt: str, metadata: ExportMetadata):
     
     # If you need persistent storage, you can use the persistent_storage attribute of the routine
     # this is a global dictionary that can be used to store state across calls
-    ps = your_export_routine.persistent_storage
+    ps = your_export_routine_single.persistent_storage
 
     # --- Apply export logic here ---
     text = str(msg.data)

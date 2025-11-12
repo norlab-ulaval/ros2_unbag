@@ -144,7 +144,7 @@ In addition to these required flags, there are some optional flags. See the tabl
 | **`-o, --output-dir`**      | `<directory>`                            | Base directory for all exports.                                                                                                   | Optional                           | `.`            |
 | **`--naming`**              | `<pattern>`                              | Filename pattern. Supports `%name`, `%index`, `%timestamp` and strftime (e.g. `%Y-%m-%d_%H-%M-%S`) - uses ROS timestamp           | Optional                           | `%name_%index` |
 | **`--resample`**            | `/master:association[,discard_eps]`.     | Time‑align to master topic. `association` = `last` or `nearest`; `nearest` needs a numeric `discard_eps`.                         | Optional                           | –              |
-| **`-p, --processing`**      | `/topic:processor[:arg1=val1,…]`         | Pre‑export processor spec. Repeatable.                                                                                            | Optional                           | –              |
+| **`-p, --processing`**      | `/topic:processor[:arg=value,…]`         | Pre‑export processor spec; repeat to build ordered chains (executed in the order provided).                                       | Optional                           | –              |
 | **`--cpu-percentage`**      | `<float>`                                | % of cores for parallel export (0–100). Use `0` for single‑threaded.                                                              | Optional                           | `80.0`         |
 | **`--config`**              | `<config.json>`                          | JSON config file path. Overrides all other args (except `bag`).                                                                   | Optional                           | –              |
 | **`--gui`**                 | (flag)                                   | Launch Qt GUI. If no `bag`/`--export`/`--config`, GUI is auto‑started.                                                            | Optional                           | `false`        |
@@ -188,10 +188,9 @@ When using ros2 unbag, you can define your export settings in a JSON configurati
     "path": "/docker-ros/data/rosbag2_2025_08_19-12_34_56",
     "subfolder": "%name",
     "naming": "%name_%index",
-    "processor": "transform_from_yaml",
-    "processor_args": {
-      "custom_frame_path": "test.yml"
-    }
+    "processors": [
+      {"name": "transform_from_yaml", "args": {"custom_frame_path": "test.yml"}}
+    ]
   },
   "__global__": {
     "cpu_percentage": 85.0,
@@ -222,15 +221,15 @@ Export routines define the way how messages are exported from the ros2 bag file 
 
 ***Note:** Point data in PCD files is written with all fields, that are present in the `PointCloud2` message. Some programs do not support arbitrary fields in PCD files. If you need to export only specific fields, you can use the `remove_fields` processor to drop unwanted fields before exporting. See the [Processors](#processors) section for more information.*
 
-In addition to these specialized routines, there are also generic routines for exporting any message type to common formats. These are available as `@single_file` and `@multi_file` variants, which determine whether all messages are written to a single file or each message is written to its own file:
+In addition to these specialized routines, there are also generic routines for exporting any message type to common formats. They share the same base identifier (e.g. `table/csv`) and can operate either in single-file or multi-file mode. When both modes are available, selecting the base identifier defaults to the multi-file variant; you can explicitly request a mode using `@single_file` or `@multi_file` if you need to override that default.
 
 | Identifier    | Topic(s)             | `@single_file` Description                                                      | `@multi_file` Description                                                         |
 | ------------- | -------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | **table/csv** | *any message type*   | Flattens fields, writes header + one row per message into a single `.csv` file. | Flattens fields, writes header + one message per file into separate `.csv` files. |
-| **text/json** | *any message type*   | All messages in one `.json` file as a list of objects.                          | One `.json` file per message.                                                     |
+| **text/json** | *any message type*   | All messages in one `.json` file as a map keyed by timestamp.                   | One `.json` file per message.                                                     |
 | **text/yaml** | *any message type*   | One `.yaml` document containing all messages in a single `.yaml` file.          | One `.yaml` document per message.                                                 |
 
-You can call these as `table/csv@single_file` or `table/csv@multi_file`.
+Use just the base identifier (e.g. `table/csv`) to pick the default behaviour. Append `@single_file` or `@multi_file` to force a specific mode when both are supported.
 
 ### Custom Export Routines
 Your message type or output format is not supported by default? No problem! You can add your own export routines to handle custom message types or output formats.
@@ -302,6 +301,25 @@ The following processors are available by default:
 | **apply_color_map**    | `sensor_msgs/msg/Image` <br> `sensor_msgs/msg/CompressedImage`      | `color_map` Integer specifying cv2 colormap index*.            | Applies a color map to an image.           |
 
 *Note: The `color_map` argument is an integer that specifies the OpenCV colormap index. You can find a list of available colormaps in the [OpenCV documentation](https://docs.opencv.org/4.x/d3/d50/group__imgproc__colormap.html).*
+
+#### Processor chains
+
+You can chain multiple processors on the same topic. In the CLI, repeat `-p/--processing` for each step, e.g.
+
+```bash
+ros2 unbag mybag -e /camera/image:image/png -p /camera/image:normalize -p /camera/image:apply_color_map:color_map=2
+```
+
+Processors run in the order they are specified. The resulting configuration stores them as an ordered list:
+
+```json
+"processors": [
+  {"name": "normalize", "args": {}},
+  {"name": "apply_color_map", "args": {"color_map": "2"}}
+]
+```
+
+In the GUI, use the **Add Processor** button inside each topic card to append steps, and the arrow buttons to reorder or the close button to remove them.
 
 ### Custom Processors
 

@@ -20,128 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import inspect
-import os
-
 from PySide6 import QtCore, QtWidgets
 
 from ros2_unbag.core.processors import Processor
 from ros2_unbag.core.routines import ExportRoutine, ExportMode
 
+from .processor_chain import ProcessorChainWidget
 
-class TopicSelector(QtWidgets.QWidget):
-    # Widget to display and select available topics from the bag
-
-    def __init__(self, bag_reader):
-        """
-        Initialize TopicSelector with a BagReader, retrieve topics and message counts, and build the UI.
-
-        Args:
-            bag_reader: BagReader instance for the ROS2 bag.
-
-        Returns:
-            None
-        """
-        super().__init__()
-        self.bag_reader = bag_reader
-        self.topics = self.bag_reader.get_topics()
-        self.message_counts = self.bag_reader.get_message_count()
-        self.checkboxes = {}
-        self.select_all_state = True
-
-        self.init_ui()
-
-    def init_ui(self):
-        """
-        Build the topic selection UI: group topics by message type with checkboxes and message count labels.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        layout = QtWidgets.QVBoxLayout()
-
-        # Create checkboxes grouped by message type
-        for msg_type, topic_list in sorted(self.topics.items()):
-            group_box = QtWidgets.QGroupBox(msg_type)
-            group_layout = QtWidgets.QVBoxLayout()
-
-            for topic in sorted(topic_list):
-                container = QtWidgets.QWidget()
-                h_layout = QtWidgets.QHBoxLayout()
-                h_layout.setContentsMargins(0, 0, 0, 0)
-
-                checkbox = QtWidgets.QCheckBox()
-                checkbox.setCursor(QtCore.Qt.PointingHandCursor)
-                label = QtWidgets.QLabel(topic)
-                label.setCursor(QtCore.Qt.PointingHandCursor)
-                label.mousePressEvent = self._make_label_toggle_cb(checkbox)
-                count_label = QtWidgets.QLabel(str(self.message_counts.get(topic, 0))+ " Messages")
-                count_label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
-
-                h_layout.addWidget(checkbox)
-                h_layout.addWidget(label)
-                h_layout.addStretch()
-                h_layout.addWidget(count_label)
-
-                container.setLayout(h_layout)
-                group_layout.addWidget(container)
-                self.checkboxes[topic] = checkbox
-
-            group_box.setLayout(group_layout)
-            layout.addWidget(group_box)
-
-        # Select All / Deselect All button
-        self.select_all_button = QtWidgets.QPushButton("Select All")
-        self.select_all_button.clicked.connect(self.toggle_select_all)
-        layout.addWidget(self.select_all_button)
-
-        self.setLayout(layout)
-
-    def toggle_select_all(self):
-        """
-        Toggles the selection state of all checkboxes in the widget.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        for cb in self.checkboxes.values():
-            cb.setChecked(self.select_all_state)
-        self.select_all_state = not self.select_all_state
-        self.select_all_button.setText("Deselect All" if not self.select_all_state else "Select All")
-
-    def _make_label_toggle_cb(self, checkbox):
-        """
-        Creates a callback function that toggles the state of the given checkbox.
-
-        Args:
-            checkbox: QCheckBox instance to toggle.
-
-        Returns:
-            function: Callback function for mousePressEvent.
-        """
-        def toggle(_):
-            checkbox.toggle()
-        return toggle
-    
-    def get_selected_topics(self):
-        """
-        Return a list of topics whose checkboxes are currently checked.
-
-        Args:
-            None
-
-        Returns:
-            list: List of selected topic names.
-        """
-        return [
-            topic for topic, cb in self.checkboxes.items() if cb.isChecked()
-        ]
+__all__ = ["ExportOptions"]
 
 
 class ExportOptions(QtWidgets.QWidget):
@@ -166,7 +52,6 @@ class ExportOptions(QtWidgets.QWidget):
         self.master_group.setExclusive(True)  # ensure single master
         self.selected_topics = selected_topics
         self.all_topics = all_topics
-        self.processor_args = {}
         self.default_folder = default_folder
 
         self.init_ui()
@@ -231,6 +116,11 @@ class ExportOptions(QtWidgets.QWidget):
             fmt_combo = QtWidgets.QComboBox()
             fmt_combo.addItems(ExportRoutine.get_formats(topic_type))
 
+            mode_label = QtWidgets.QLabel("Mode")
+            mode_combo = QtWidgets.QComboBox()
+            mode_label.setVisible(False)
+            mode_combo.setVisible(False)
+
             # Output directory
             abs_path_edit = QtWidgets.QLineEdit()
             abs_path_edit.setText(str(self.default_folder))
@@ -250,18 +140,95 @@ class ExportOptions(QtWidgets.QWidget):
             # Subdirectory and naming scheme
             rel_path_edit = QtWidgets.QLineEdit("%name")
             name_scheme_edit = QtWidgets.QLineEdit()
-            
+
             # Dynamic update based on format selection
-            def update_naming_and_checkbox(fmt, name_edit=name_scheme_edit, t_type=topic_type):
-                mode = ExportRoutine.get_mode(t_type, fmt)
-                if mode == ExportMode.SINGLE_FILE:
+            def _apply_default_naming(name_edit: QtWidgets.QLineEdit, selected_mode: ExportMode):
+                """
+                Update the naming scheme QLineEdit based on the selected export mode.
+                If SINGLE_FILE is selected, use "%name"; if MULTI_FILE, use "%name_%index".
+
+                Args:
+                    name_edit: QLineEdit for naming scheme.
+                    selected_mode: Currently selected ExportMode.
+                
+                Returns:
+                    None
+                """
+                if selected_mode == ExportMode.SINGLE_FILE:
                     name_edit.setText("%name")
                 else:
                     name_edit.setText("%name_%index")
 
-            # Connect format selection to update naming and checkbox
-            fmt_combo.currentTextChanged.connect(update_naming_and_checkbox)
-            update_naming_and_checkbox(fmt_combo.currentText())
+            def _refresh_mode_controls(selected_fmt: str, *, combo=mode_combo,
+                                       label=mode_label, name_edit=name_scheme_edit,
+                                       t_type=topic_type):
+                """
+                Update mode selection controls based on selected format and available modes.
+                If multiple modes are available, show the combo box; otherwise, hide it and set the only mode.
+
+                Args:
+                    selected_fmt: Currently selected format string.
+                    combo: QComboBox for mode selection.
+                    label: QLabel for the mode combo box.
+                    name_edit: QLineEdit for naming scheme.
+                    t_type: Message type string.
+
+                Returns:
+                    None
+                """
+                modes = list(ExportRoutine.get_modes_for_format(t_type, selected_fmt))
+                if not modes:
+                    modes = [ExportMode.MULTI_FILE]
+                preferred_mode = combo.property("pending_mode")
+                combo.setProperty("pending_mode", None)
+                combo.blockSignals(True)
+                combo.clear()
+                ordered_modes = sorted(modes, key=lambda m: 0 if m == ExportMode.MULTI_FILE else 1)
+
+                if len(ordered_modes) > 1:
+                    for mode_option in ordered_modes:
+                        label_text = "Multi file" if mode_option == ExportMode.MULTI_FILE else "Single file"
+                        combo.addItem(label_text, mode_option)
+                    if preferred_mode in ordered_modes:
+                        idx = combo.findData(preferred_mode)
+                        if idx >= 0:
+                            combo.setCurrentIndex(idx)
+                    else:
+                        combo.setCurrentIndex(0)
+                    combo.setProperty("forced_mode", None)
+                    current_mode = combo.currentData()
+                    combo.setVisible(True)
+                    label.setVisible(True)
+                else:
+                    only_mode = ordered_modes[0]
+                    combo.setProperty("forced_mode", only_mode)
+                    current_mode = only_mode
+                    combo.setVisible(False)
+                    label.setVisible(False)
+                combo.setProperty("available_modes", tuple(ordered_modes))
+                combo.blockSignals(False)
+                _apply_default_naming(name_edit, current_mode)
+
+            def _mode_changed(_, combo=mode_combo, name_edit=name_scheme_edit):
+                """
+                Callback for when the mode selection changes; update naming scheme accordingly.
+                
+                Args:
+                    _: Ignored parameter (index).
+                    combo: QComboBox for mode selection.
+                    name_edit: QLineEdit for naming scheme.
+
+                Returns:
+                    None
+                """
+                mode_value = combo.currentData()
+                if mode_value is None:
+                    mode_value = combo.property("forced_mode") or ExportMode.MULTI_FILE
+                _apply_default_naming(name_edit, mode_value)
+
+            mode_combo.currentIndexChanged.connect(_mode_changed)
+            fmt_combo.currentTextChanged.connect(_refresh_mode_controls)
+            _refresh_mode_controls(fmt_combo.currentText())
 
             # Master checkbox (mutually exclusive)
             is_master_check = QtWidgets.QCheckBox(
@@ -270,31 +237,35 @@ class ExportOptions(QtWidgets.QWidget):
             self.master_checkboxes[topic] = is_master_check
 
             # Processing selection
-            if Processor.get_formats(topic_type):
-                proc_combo = QtWidgets.QComboBox()
-                proc_combo.addItems(
-                    ["No Processor", *Processor.get_formats(topic_type)])
-                proc_combo.currentTextChanged.connect(
-                    lambda selected_processor, fl=form_layout, t=topic, tt
-                    =topic_type: self._processor_changed(
-                        selected_processor, t, tt, fl))
+            available_processors = Processor.get_formats(topic_type)
+            if available_processors:
+                proc_chain_widget = ProcessorChainWidget(topic_type, available_processors)
             else:
-                proc_combo = None
+                proc_chain_widget = None
 
             form_layout.addRow("Format", fmt_combo)
+            form_layout.addRow(mode_label, mode_combo)
             form_layout.addRow("Output Directory", path_layout)
             form_layout.addRow("Subdirectory", rel_path_edit)
             form_layout.addRow("Naming", name_scheme_edit)
             form_layout.addRow("Master Topic", is_master_check)
-            if proc_combo:
-                form_layout.addRow("Processor", proc_combo)
+            if proc_chain_widget:
+                form_layout.addRow("Processors", proc_chain_widget)
 
             group_box.setLayout(form_layout)
             layout.addWidget(group_box)
 
-            self.config_widgets[topic] = (fmt_combo, abs_path_edit,
-                                          rel_path_edit, name_scheme_edit,
-                                          is_master_check, proc_combo)
+            self.config_widgets[topic] = {
+                "topic_type": topic_type,
+                "format_combo": fmt_combo,
+                "mode_combo": mode_combo,
+                "mode_label": mode_label,
+                "output_dir": abs_path_edit,
+                "subdir": rel_path_edit,
+                "naming": name_scheme_edit,
+                "master_checkbox": is_master_check,
+                "processor_chain": proc_chain_widget,
+            }
 
         # ────────── Help ──────────
         note = QtWidgets.QLabel(
@@ -336,72 +307,6 @@ class ExportOptions(QtWidgets.QWidget):
         # Default epsilon if nearest is selected
         if mode == "nearest" and not self.eps_edit.text().strip():
             self.eps_edit.setText("0.5")
-
-    def _processor_changed(self, selected_processor, topic, topic_type,
-                           form_layout):
-        """
-        Update the form layout when the processor selection changes: clear old argument fields and add QLineEdits for new processor args.
-
-        Args:
-            selected_processor: Name of the selected processor (str).
-            topic: Topic name (str).
-            topic_type: Message type (str).
-            form_layout: QFormLayout instance for the topic.
-
-        Returns:
-            None
-        """
-        # Safely clear existing argument rows
-        for i in reversed(range(form_layout.rowCount())):
-            item = form_layout.itemAt(i, QtWidgets.QFormLayout.LabelRole)
-            if item:
-                label = item.widget()
-                if label and hasattr(
-                        label, "is_argument_row") and label.is_argument_row:
-                    # Remove the associated field widget
-                    field_item = form_layout.itemAt(
-                        i, QtWidgets.QFormLayout.FieldRole)
-                    if field_item:
-                        field_widget = field_item.widget()
-                        if field_widget:
-                            field_widget.setParent(None)
-                            field_widget.deleteLater()
-                    # Remove the label widget
-                    label.setParent(None)
-                    label.deleteLater()
-                    form_layout.removeRow(i)
-
-        if selected_processor != "No Processor":
-            args = Processor.get_args(topic_type, selected_processor)
-            self.processor_args[topic] = {}  # Store argument names and QLineEdit widgets
-
-            for arg_name, (param, doc) in args.items():
-                # Create a QLabel and QLineEdit for each argument
-                label = QtWidgets.QLabel()
-                label.setText(f"{arg_name} (optional)" if param.default != inspect.Parameter.empty else arg_name)
-                label.is_argument_row = True  # Tag this label as an argument row
-
-                # Build placeholder with doc, default, and type
-                parts = []
-                if doc:
-                    parts.append(doc)
-                if param.default != inspect.Parameter.empty:
-                    parts.append(f"default: {param.default}")
-                if param.annotation != inspect.Parameter.empty:
-                    parts.append(f"Type: {param.annotation.__name__}")
-                placeholder_text = " — ".join(parts)
-
-                arg_edit = QtWidgets.QLineEdit()
-                arg_edit.setPlaceholderText(placeholder_text)
-
-                # Add to form layout
-                form_layout.addRow(label, arg_edit)
-
-                # Store input
-                self.processor_args[topic][arg_name] = arg_edit
-        else:
-            # If no processor is selected, clear the stored arguments for this topic
-            self.processor_args[topic] = {}
 
     def get_export_config(self):
         """
@@ -448,32 +353,37 @@ class ExportOptions(QtWidgets.QWidget):
             }
 
         for topic, widgets in self.config_widgets.items():
-            if assoc_mode == "no resampling":
-                fmt, abs_path, rel_path, name, _, processor = widgets
-            else:
-                fmt, abs_path, rel_path, name, is_master, processor = widgets
+            fmt_combo = widgets["format_combo"]
+            mode_combo = widgets["mode_combo"]
+            abs_path = widgets["output_dir"]
+            rel_path = widgets["subdir"]
+            name = widgets["naming"]
+            master_checkbox = widgets["master_checkbox"]
+            proc_chain_widget = widgets.get("processor_chain")
+            topic_type = widgets["topic_type"]
 
             base = abs_path.text().strip()
             sub = rel_path.text().strip().lstrip("/")
 
+            mode_value = mode_combo.currentData() if mode_combo.isVisible() else mode_combo.property("forced_mode")
+            if mode_value is None:
+                mode_value = ExportMode.MULTI_FILE
+            available_modes = mode_combo.property("available_modes") or tuple()
+            fmt_value = fmt_combo.currentText()
+            if mode_value == ExportMode.SINGLE_FILE and len(available_modes) > 1:
+                fmt_value = f"{fmt_value}@single_file"
+
             topic_cfg = {
-                "format": fmt.currentText(),
+                "format": fmt_value,
                 "path": base,
                 "subfolder": sub,
                 "naming": name.text().strip()
             }
 
-            if processor and processor.currentText() != "No Processor":
-                proc_name = processor.currentText()
-                topic_cfg["processor"] = proc_name
-
-                processor_config = {}
-                processor_args = self.processor_args.get(topic, {})
-                for arg_name, arg_edit in processor_args.items():
-                    arg_value = arg_edit.text().strip()
-                    if arg_value:
-                        processor_config[arg_name] = arg_value
-                topic_cfg["processor_args"] = processor_config
+            if proc_chain_widget:
+                chain = proc_chain_widget.get_chain()
+                if chain:
+                    topic_cfg["processors"] = chain
 
             topics_config[topic] = topic_cfg
 
@@ -507,17 +417,36 @@ class ExportOptions(QtWidgets.QWidget):
                     f"Topic '{topic}' not found in the bag. Cannot set export config properly."
                 )
 
-            fmt_combo, abs_path_edit, rel_path_edit, name_scheme_edit, is_master_check, proc_combo = widgets
-            # Set format
+            fmt_combo = widgets["format_combo"]
+            mode_combo = widgets["mode_combo"]
+            abs_path_edit = widgets["output_dir"]
+            rel_path_edit = widgets["subdir"]
+            name_scheme_edit = widgets["naming"]
+            is_master_check = widgets["master_checkbox"]
+            proc_chain_widget = widgets.get("processor_chain")
+            topic_type = widgets["topic_type"]
+
             fmt = topic_cfg.get("format", "")
-            idx = fmt_combo.findText(fmt)
+            resolution = ExportRoutine.resolve(topic_type, fmt)
+            if resolution is None:
+                raise ValueError(
+                    f"No export routine found for topic '{topic}' with format '{fmt}'."
+                )
+            _, canonical_fmt, mode = resolution
+            mode_combo.setProperty("pending_mode", mode)
+            idx = fmt_combo.findText(canonical_fmt)
             if idx >= 0:
                 fmt_combo.setCurrentIndex(idx)
+            else:
+                fmt_combo.addItem(canonical_fmt)
+                fmt_combo.setCurrentIndex(fmt_combo.count() - 1)
             # Set output path and subdirectory
             path = topic_cfg.get("path", "")
             subdir = topic_cfg.get("subfolder", "").strip("/")
             abs_path_edit.setText(path)
             rel_path_edit.setText(subdir)
+            # Ensure the mode combo reflects the loaded configuration even if the format index did not change
+            self._ensure_mode_selection(mode_combo, mode)
             # Set naming scheme
             name_scheme_edit.setText(topic_cfg.get("naming", ""))
             # Set master topic checkbox
@@ -526,26 +455,26 @@ class ExportOptions(QtWidgets.QWidget):
                 is_master_check.setChecked(True)
 
             # Set processor and arguments
-            if proc_combo:
-
-                proc_name = topic_cfg.get("processor", "No Processor")
-                idx = proc_combo.findText(proc_name)
-                if idx >= 0:
-                    proc_combo.setCurrentIndex(idx)
-
-                # Restore processor arguments
-                processor_config = topic_cfg.get("processor_args", {})
-                topic_type = next(
-                    (k for k, v in self.all_topics.items() if topic in v), None)
-                if processor_config and topic_type:
-                    # Dynamically recreate argument fields
-                    self._processor_changed(proc_name, topic, topic_type,
-                                            proc_combo.parent().layout())
-                    for arg_name, arg_value in processor_config.items():
-                        arg_edit = self.processor_args[topic].get(
-                            arg_name, None)
-                        if arg_edit:
-                            arg_edit.setText(str(arg_value))
+            if proc_chain_widget:
+                chain_cfg = topic_cfg.get("processors")
+                if not chain_cfg and topic_cfg.get("processor"):
+                    chain_cfg = [{
+                        "name": topic_cfg["processor"],
+                        "args": topic_cfg.get("processor_args", {}),
+                    }]
+                normalized_chain = []
+                for entry in chain_cfg or []:
+                    if isinstance(entry, str):
+                        normalized_chain.append({"name": entry, "args": {}})
+                    elif isinstance(entry, dict):
+                        name = entry.get("name")
+                        if not name:
+                            continue
+                        args = entry.get("args", {}) or {}
+                        if not isinstance(args, dict):
+                            args = {}
+                        normalized_chain.append({"name": name, "args": args})
+                proc_chain_widget.set_chain(normalized_chain)
 
         # Set global synchronization settings if present
         for topic, topic_cfg in config.items():
@@ -558,6 +487,24 @@ class ExportOptions(QtWidgets.QWidget):
                 if "discard_eps" in rcfg:
                     self.eps_edit.setText(str(rcfg["discard_eps"]))
                 break
+
+    @staticmethod
+    def _ensure_mode_selection(mode_combo: QtWidgets.QComboBox, target_mode):
+        """
+        Make sure the mode combo box reflects the desired export mode, even if the format selection has not emitted a change signal.
+
+        Args:
+            mode_combo: The QComboBox controlling export mode.
+            target_mode: The ExportMode that should be selected.
+        """
+        if mode_combo.count():
+            for idx in range(mode_combo.count()):
+                if mode_combo.itemData(idx) == target_mode:
+                    if mode_combo.currentIndex() != idx:
+                        mode_combo.setCurrentIndex(idx)
+                    return
+        # If the combo has no items (single forced mode), keep the forced mode metadata in sync
+        mode_combo.setProperty("forced_mode", target_mode)
 
     def select_directory_and_apply(self, edit):
         """
@@ -589,3 +536,4 @@ class ExportOptions(QtWidgets.QWidget):
             self, "Select Directory")
         if directory:
             edit.setText(directory)
+
