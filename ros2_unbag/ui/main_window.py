@@ -28,10 +28,24 @@ from PySide6.QtCore import Q_ARG, Qt
 
 from ros2_unbag.core.bag_reader import BagReader
 from ros2_unbag.core.exporter import Exporter
-from ros2_unbag.ui.widgets import ExportOptions, TopicSelector
+from ros2_unbag.ui.widgets.topic_list import TopicListWidget
+from ros2_unbag.ui.widgets.topic_settings import TopicSettingsWidget
+from ros2_unbag.ui.widgets.global_settings import GlobalSettingsWidget
+
+__all__ = ["UnbagApp"]
 
 
 class WorkerThread(QtCore.QThread):
+    """
+    Background worker thread for executing long-running tasks without blocking the UI.
+    
+    Executes a task function in a separate thread and emits signals on completion or error.
+    
+    Signals:
+        finished (object): Emitted when task completes successfully, passes result
+        error (Exception): Emitted when task raises an exception, passes the exception
+    """
+    
     finished = QtCore.Signal(object)
     error = QtCore.Signal(Exception)
 
@@ -67,42 +81,72 @@ class WorkerThread(QtCore.QThread):
             self.error.emit(e)
 
 
-class ExportProgressDialog(QtWidgets.QDialog):
-    # Custom dialog with animation and progress bar
-
-    def __init__(self, text, *args, **kwargs):
+class LoadingDialog(QtWidgets.QDialog):
+    """
+    Custom loading dialog with animated GIF and progress bar.
+    
+    Displays a modal dialog with a loading animation and progress indicator.
+    Supports both determinate (0-100%) and indeterminate (pulsing) progress modes.
+    """
+    
+    def __init__(self, text, parent=None, indeterminate=False):
         """
-        Initialize ExportProgressDialog with display text and optional args.
+        Initialize the LoadingDialog with display text and progress mode.
 
         Args:
-            text: Text to display in the dialog.
-            *args: Additional positional arguments.
-            **kwargs: Additional keyword arguments.
+            text: Message text to display in the dialog.
+            parent: Optional parent widget.
+            indeterminate: If True, shows pulsing progress bar; if False, shows 0-100% progress.
 
         Returns:
             None
         """
-        super().__init__(*args, **kwargs)
-
-        # Display text
+        super().__init__(parent)
+        self.setWindowTitle("Please Wait")
+        self.setModal(True)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint)
+        
         layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # Text
         text_label = QtWidgets.QLabel(text)
-        layout.addWidget(text_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        text_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        font = text_label.font()
+        font.setPointSize(10)
+        text_label.setFont(font)
+        layout.addWidget(text_label)
 
-        # Display GIF animation
+        # GIF
         gif_label = QtWidgets.QLabel(self)
+        gif_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         base_dir = Path(__file__).resolve().parent
-        gif_animation = QtGui.QMovie(str(base_dir / "assets/loading.gif"))
-        gif_label.setMovie(gif_animation)
-        gif_animation.start()
-        layout.addWidget(gif_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        gif_path = base_dir / "assets/loading.gif"
+        
+        if gif_path.exists():
+            gif_animation = QtGui.QMovie(str(gif_path))
+            gif_animation.setScaledSize(QtCore.QSize(64, 64))  # Ensure it's not too huge
+            gif_label.setMovie(gif_animation)
+            gif_animation.start()
+        else:
+            gif_label.setText("Loading...")
+            
+        layout.addWidget(gif_label)
 
-        # Initialize progress bar
+        # Progress Bar
         self.progress_bar = QtWidgets.QProgressBar(self)
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding,
-                                        QtWidgets.QSizePolicy.Policy.Fixed)
+        if indeterminate:
+            self.progress_bar.setRange(0, 0)  # Indeterminate
+            self.progress_bar.setTextVisible(False)
+        else:
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(0)
+            
         layout.addWidget(self.progress_bar)
+        
+        # Fixed size for consistency
+        self.setFixedSize(300, 200)
 
     @QtCore.Slot(int)
     def setValue(self, value):
@@ -116,27 +160,24 @@ class ExportProgressDialog(QtWidgets.QDialog):
             None
         """
         self.progress_bar.setValue(value)
+
+
+class UnbagApp(QtWidgets.QMainWindow):
+    """
+    Main application window for ros2_unbag GUI.
     
-    def closeEvent(self, event):
-        """
-        Emit finished event and close.
-
-        Args:
-            event: QCloseEvent instance.
-
-        Returns:
-            None
-        """
-        self.finished.emit(0)
-        super().closeEvent(event)
-
-
-class UnbagApp(QtWidgets.QWidget):
-    # Main application widget for exporting ROS2 bag data
-
+    Provides a 3-column interface for:
+    - Left: Bag file loading and topic selection
+    - Middle: Per-topic export settings configuration
+    - Right: Global settings and export action
+    
+    Orchestrates the entire export workflow from bag loading through configuration
+    to final export execution.
+    """
+    
     def __init__(self):
         """
-        Initialize UnbagApp UI: set title, size, scroll area, title image, and file selection button.
+        Initialize the UnbagApp main window and UI components.
 
         Args:
             None
@@ -146,29 +187,19 @@ class UnbagApp(QtWidgets.QWidget):
         """
         super().__init__()
         self.setWindowTitle("ros2 unbag")
-        self.setGeometry(100, 100, 800, 600)
+        self.resize(1200, 800)
 
-        # Scrollable area setup
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidgetResizable(True)
-        self.scroll_content = QtWidgets.QWidget()
-        self.layout = QtWidgets.QVBoxLayout(self.scroll_content)
-        scroll.setWidget(self.scroll_content)
-
-        main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.addWidget(scroll)
-        self.setLayout(main_layout)
-
-        # Show init screen
-        self.show_init_screen()
-
-        self.pending_config = None
-        self.bag_loaded = False
+        self.bag_reader = None
+        self.bag_path = None
+        self.topics_config = {}  # topic -> config dict
         self.current_exporter = None
 
-    def load_bag(self):
+        self.init_ui()
+        self.show_init_screen()
+
+    def init_ui(self):
         """
-        Prompt user to select a bag file, disable UI, show loading dialog, and start background reader thread.
+        Build the main 3-column UI layout with topic list, settings, and global controls.
 
         Args:
             None
@@ -176,234 +207,311 @@ class UnbagApp(QtWidgets.QWidget):
         Returns:
             None
         """
-        # Open file dialog and load bag in background
+        # Central Widget
+        central_widget = QtWidgets.QWidget()
+        self.setCentralWidget(central_widget)
+        self.main_layout = QtWidgets.QHBoxLayout(central_widget)
+        self.main_layout.setContentsMargins(10, 10, 10, 10)
+        self.main_layout.setSpacing(10)
+
+        # 1. Left Column: Bag & Topics
+        left_container = QtWidgets.QWidget()
+        left_layout = QtWidgets.QVBoxLayout(left_container)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Bag Loading Area
+        bag_group = QtWidgets.QGroupBox("Bag File")
+        bag_layout = QtWidgets.QVBoxLayout(bag_group)
+        self.btn_load_bag = QtWidgets.QPushButton("Load Bag")
+        self.btn_load_bag.clicked.connect(self.load_bag)
+        self.lbl_bag_name = QtWidgets.QLabel("No bag loaded")
+        self.lbl_bag_name.setWordWrap(True)
+        bag_layout.addWidget(self.btn_load_bag)
+        bag_layout.addWidget(self.lbl_bag_name)
+        left_layout.addWidget(bag_group)
+
+        # Topic List
+        self.topic_list = TopicListWidget()
+        self.topic_list.topic_selected.connect(self.on_topic_selected)
+        self.topic_list.topic_toggled.connect(self.on_topic_toggled)
+        left_layout.addWidget(self.topic_list)
+        
+        # Config Buttons
+        cfg_layout = QtWidgets.QHBoxLayout()
+        self.btn_load_cfg = QtWidgets.QPushButton("Load Config")
+        self.btn_load_cfg.clicked.connect(self.load_config_file)
+        self.btn_save_cfg = QtWidgets.QPushButton("Save Config")
+        self.btn_save_cfg.clicked.connect(self.save_config_file)
+        cfg_layout.addWidget(self.btn_load_cfg)
+        cfg_layout.addWidget(self.btn_save_cfg)
+        left_layout.addLayout(cfg_layout)
+
+        left_container.setFixedWidth(300)
+        self.main_layout.addWidget(left_container)
+
+        # 2. Middle Column: Settings
+        self.topic_settings = TopicSettingsWidget(Path.cwd())
+        self.topic_settings.settings_changed.connect(self.on_settings_changed)
+        
+        # Wrap in scroll area
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.topic_settings)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.main_layout.addWidget(scroll, stretch=1)
+
+        # 3. Right Column: Global & Summary
+        self.global_settings = GlobalSettingsWidget()
+        self.global_settings.export_clicked.connect(self.export_data)
+        self.global_settings.setFixedWidth(300)
+        self.main_layout.addWidget(self.global_settings)
+
+        # Status Bar
+        self.status_bar = QtWidgets.QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("Ready")
+
+    def show_init_screen(self):
+        """
+        Disable UI controls until a bag file is loaded.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        # Disable controls until bag is loaded
+        self.topic_list.setEnabled(False)
+        self.topic_settings.setEnabled(False)
+        self.global_settings.setEnabled(False)
+        self.btn_save_cfg.setEnabled(False)
+
+    def load_bag(self):
+        """
+        Prompt user to select a bag file, reset state, show loading dialog, and start background reader thread.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         bag_path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self, "Open Bag File", "", "Bag Files (*.db3 *.mcap)")
         if not bag_path:
             return
+
+        self.bag_path = Path(bag_path)
+        self.lbl_bag_name.setText(self.bag_path.name)
         
-        # Reset any previously loaded bag options
-        self.bag_reader = None
-        self.topic_selector = None
-        self.export_options = None
-        self.bag_loaded = False
-
-        self.bag_parent_folder = Path(bag_path).parent
-
-        self.setEnabled(False)
-        self.wait_dialog = QtWidgets.QProgressDialog(
-            "Loading bag file, please wait...", None, 0, 0, self)
-        self.wait_dialog.setWindowTitle("Loading")
-        self.wait_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        self.wait_dialog.setCancelButton(None)
-        self.wait_dialog.resize(400, 100)
-        self.wait_dialog.setMinimumDuration(0)
+        # Reset state
+        self.topics_config = {}
+        self.topic_settings.default_folder = self.bag_path.parent
+        
+        # Show loading
+        self.wait_dialog = LoadingDialog("Loading bag file...", self, indeterminate=True)
         self.wait_dialog.show()
         QtWidgets.QApplication.processEvents()
 
-        self.worker = WorkerThread(self.load_bag_reader, bag_path)
+        self.worker = WorkerThread(lambda p: BagReader(p), bag_path)
         self.worker.finished.connect(self.on_bag_loaded)
-        self.worker.error.connect(lambda e: QtWidgets.QMessageBox.critical(self, "Error", f"Unexpected error: {e}"))
-        QtCore.QTimer.singleShot(100, self.worker.start)
+        self.worker.error.connect(lambda e: QtWidgets.QMessageBox.critical(self, "Error", str(e)))
+        self.worker.start()
 
-    def load_bag_reader(self, path):
+    def on_bag_loaded(self, reader):
         """
-        Attempt to create a BagReader for the given path; return the reader or exception.
+        Handle successful bag loading: close dialog, populate topic list, enable UI controls.
 
         Args:
-            path: Path to the ROS2 bag file.
-
-        Returns:
-            BagReader instance or Exception.
-        """
-        try:
-            return BagReader(path)
-        except Exception as e:
-            return e
-
-    def on_bag_loaded(self, result):
-        """
-        Called when bag loading completes: close dialog, re-enable UI, handle errors or show topic selector.
-
-        Args:
-            result: BagReader instance or Exception.
+            reader: BagReader instance for the loaded bag.
 
         Returns:
             None
         """
         self.wait_dialog.close()
-        self.setEnabled(True)
+        self.bag_reader = reader
+        
+        # Populate Topic List
+        topics = self.bag_reader.get_topics()
+        counts = self.bag_reader.get_message_count()
+        self.topic_list.load_topics(topics, counts)
+        
+        # Initialize default config for all topics
+        # We don't pre-populate everything to save memory, but we can if needed.
+        # For now, we'll generate config on the fly if missing when selecting.
+        
+        self.topic_list.setEnabled(True)
+        self.topic_settings.setEnabled(True)
+        self.global_settings.setEnabled(True)
+        self.btn_save_cfg.setEnabled(True)
+        
+        self.status_bar.showMessage(f"Loaded {self.bag_path.name}")
+        self.update_summary()
 
-        if isinstance(result, Exception):
-            QtWidgets.QMessageBox.critical(self, "Error",
-                                           f"Failed to load bag: {result}")
-            return
-
-        self.bag_reader = result
-        self.bag_loaded = True
-        self.show_topic_selector()
-
-    def _validate_config(self, config):
+    def on_topic_selected(self, topic):
         """
-        Ensure each topic in config has a non-empty output directory; raise ValueError on errors.
+        Handle topic selection from the list: load topic settings into the middle column.
+        
+        Finds the topic's message type, creates default config if needed, and displays
+        the settings in the TopicSettingsWidget.
 
         Args:
-            config: Dict of per-topic export configuration.
+            topic: Selected topic name string.
 
         Returns:
             None
+        """
+        # Get topic type
+        topic_type = None
+        for t_type, t_list in self.bag_reader.get_topics().items():
+            if topic in t_list:
+                topic_type = t_type
+                break
+        
+        if not topic_type:
+            return
 
+        # Get or create config
+        if topic not in self.topics_config:
+            self.topics_config[topic] = {
+                "path": str(self.bag_path.parent),
+                "subfolder": "",
+                "naming": "%name",
+                "format": ""  # Will default in widget
+            }
+        
+        self.topic_settings.set_topic(topic, topic_type, self.topics_config[topic])
+
+    def on_settings_changed(self, topic, new_config):
+        """
+        Handle settings changes from TopicSettingsWidget and update internal config.
+
+        Args:
+            topic: Topic name string.
+            new_config: Updated configuration dictionary.
+
+        Returns:
+            None
+        """
+        # Merge new config
+        if topic not in self.topics_config:
+            self.topics_config[topic] = {}
+        self.topics_config[topic].update(new_config)
+
+    def on_topic_toggled(self, topic, is_checked):
+        """
+        Handle topic checkbox toggle and update summary display.
+
+        Args:
+            topic: Topic name string.
+            is_checked: Boolean indicating if topic is now checked.
+
+        Returns:
+            None
+        """
+        # Just update summary for now.
+        # We could also auto-select the topic for editing if checked?
+        # For now, keep selection and checking separate.
+        self.update_summary()
+
+    def update_summary(self):
+        """
+        Update the global settings summary with current topic selection counts.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        # Count checked items in topic list
+        selected_count = 0
+        for item in self.topic_list.topics.values():
+            cb = item.data(QtCore.Qt.UserRole)
+            if cb and cb.isChecked():
+                selected_count += 1
+        
+        total_count = len(self.topic_list.topics)
+        self.global_settings.update_summary(selected_count, total_count)
+
+    def get_export_config(self):
+        """
+        Collect and validate export configuration for all selected topics.
+        
+        Gathers configuration from UI widgets for all checked topics, validates
+        global settings (especially master topic selection for resampling), and
+        applies default values where needed.
+
+        Args:
+            None
+
+        Returns:
+            tuple: (final_config dict, global_config dict) containing export settings
+                  for selected topics and global configuration.
+                  
         Raises:
-            ValueError: If any topic has an empty output directory.
+            ValueError: If resampling is enabled but no master topic is selected,
+                       or if other validation fails.
         """
-        # Check if output directories are set for each topic
-        errors = []
-        for topic, cfg in config.items():
-            path = cfg.get('path', '').strip()
-            if not path:
-                errors.append(f"Empty output directory for topic '{topic}'")
+        # Gather config for all SELECTED (checked) topics
+        final_config = {}
         
-        if errors:
-            print("\033[91mConfiguration errors found:")
-            for error in errors:
-                print(f"  - {error}")
-            print("Please set output directory paths and try again!\033[0m")
-            raise ValueError(f"Invalid export configuration:\n" + "\n".join(errors))
+        # First, ensure current settings in middle column are saved
+        current_topic = self.topic_settings.current_topic
+        if current_topic:
+            self.topics_config[current_topic].update(self.topic_settings.get_config())
 
-    def show_init_screen(self):
-        """
-        Clear UI and show the initial file selection screen.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self.clear_layout()
-
-        # Title image
-        base_dir = Path(__file__).resolve().parent
-        pixmap = QtGui.QPixmap(str(base_dir / "assets/title.png")).scaledToWidth(750, QtCore.Qt.TransformationMode.SmoothTransformation)
-        image_label = QtWidgets.QLabel()
-        image_label.setPixmap(pixmap)
-        image_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.layout.addWidget(image_label)
-
-        # Button to select a bag file
-        file_button = QtWidgets.QPushButton("Select ROS2 Bag File (.mcap/.db3)")
-        file_button.setFixedHeight(40)
-        file_button.clicked.connect(self.load_bag)
-        self.layout.addWidget(file_button)
-
-    def show_topic_selector(self):
-        """
-        Clear UI layout, display TopicSelector in a scroll area, and add Load/Next buttons.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self.clear_layout()
-
-        # Scrollable area for topic selector
-        scroll_area = QtWidgets.QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_content = QtWidgets.QWidget()
-        scroll_layout = QtWidgets.QVBoxLayout(scroll_content)
-
-        self.topic_selector = TopicSelector(self.bag_reader)
-        scroll_layout.addWidget(self.topic_selector)
-        scroll_area.setWidget(scroll_content)
-
-        # Add scroll area to main layout
-        self.layout.addWidget(scroll_area)
-
-        # Fixed button layout at bottom
-        button_layout = QtWidgets.QHBoxLayout()
+        global_cfg = self.global_settings.get_config()
         
-        back_button = QtWidgets.QPushButton("Back")
-        back_button.clicked.connect(self.show_init_screen)
-        button_layout.addWidget(back_button)
+        # Validate global config (master topic)
+        if "resample_config" in global_cfg:
+            # Check if a master is set in any of the SELECTED topics
+            master_found = False
+            for topic, item in self.topic_list.topics.items():
+                cb = item.data(QtCore.Qt.UserRole)
+                if cb and cb.isChecked():
+                    cfg = self.topics_config.get(topic, {})
+                    rcfg = cfg.get("resample_config", {})
+                    if rcfg.get("is_master"):
+                        master_found = True
+                        global_cfg["resample_config"]["master_topic"] = topic
+                        break
+            
+            if not master_found:
+                raise ValueError("Resampling enabled but no Master Topic selected among exported topics.")
 
-        load_config_button = QtWidgets.QPushButton("Load Config")
-        load_config_button.clicked.connect(self.load_config_file)
-        button_layout.addWidget(load_config_button)
+        for topic, item in self.topic_list.topics.items():
+            cb = item.data(QtCore.Qt.UserRole)
+            if cb and cb.isChecked():
+                # Get config, use defaults if not visited
+                cfg = self.topics_config.get(topic, {}).copy()
+                
+                # If format is missing, we need to default it. 
+                # But we don't know the type here easily without lookup.
+                # The Exporter might handle it or we should force default.
+                # Let's assume user visited or we do a quick default pass.
+                # Actually, if the user never clicked the topic, 'format' is empty.
+                # We should probably default it.
+                if not cfg.get("format"):
+                     # Find type
+                    t_type = next((k for k, v in self.bag_reader.get_topics().items() if topic in v), None)
+                    # Default format
+                    from ros2_unbag.core.routines import ExportRoutine
+                    formats = ExportRoutine.get_formats(t_type)
+                    if formats:
+                        cfg["format"] = formats[0]
+                        # Also set default path/naming if empty
+                        if "path" not in cfg: cfg["path"] = str(self.bag_path.parent)
+                        if "naming" not in cfg: cfg["naming"] = "%name"
+                
+                final_config[topic] = cfg
 
-        next_button = QtWidgets.QPushButton("Next")
-        next_button.clicked.connect(self.show_export_settings_page)
-        button_layout.addWidget(next_button)
-
-        self.layout.addLayout(button_layout)
-
-    def show_export_settings_page(self, config=None, global_config=None):
-        """
-        Clear layout and show export options for selected or loaded config, with navigation buttons.
-
-        Args:
-            config: Optional dict of per-topic export configuration.
-            global_config: Optional dict of global settings.
-
-        Returns:
-            None
-        """
-        if config is not None and isinstance(config, dict):
-            selected_topics = list(config.keys())
-        else:
-            selected_topics = self.topic_selector.get_selected_topics()
-        if not selected_topics:
-            return
-
-        self.clear_layout()
-
-        # Scrollable area for export options
-        scroll_area = QtWidgets.QScrollArea()
-        scroll_area.setWidgetResizable(True)
-
-        scroll_content = QtWidgets.QWidget(self)
-        scroll_layout = QtWidgets.QVBoxLayout(scroll_content)
-
-        self.export_options = ExportOptions(
-            selected_topics,
-            self.bag_reader.get_topics(),
-            self.bag_parent_folder
-        )
-        scroll_layout.addWidget(self.export_options)
-        scroll_area.setWidget(scroll_content)
-
-        self.layout.addWidget(scroll_area)
-
-        # Fixed button layout at bottom
-        button_container = QtWidgets.QWidget(self)
-        button_layout = QtWidgets.QHBoxLayout(button_container)
-
-        back_button = QtWidgets.QPushButton("Back", self)
-        back_button.clicked.connect(self.show_topic_selector)
-        button_layout.addWidget(back_button)
-
-        save_config_button = QtWidgets.QPushButton("Save Config", self)
-        save_config_button.clicked.connect(self.save_config_file)
-        button_layout.addWidget(save_config_button)
-
-        load_config_button = QtWidgets.QPushButton("Load Config", self)
-        load_config_button.clicked.connect(self.load_config_file)
-        button_layout.addWidget(load_config_button)
-
-        export_button = QtWidgets.QPushButton("Export", self)
-        export_button.clicked.connect(self.export_data)
-        button_layout.addWidget(export_button)
-
-        self.layout.addWidget(button_container)
-
-        if config is not None and isinstance(config, dict):
-            self.export_options.set_export_config(config, global_config)
-
+        return final_config, global_cfg
 
     def export_data(self):
         """
-        Disable UI, show export progress dialog, validate config, and start background export thread.
+        Initiate the export process: validate config, show progress dialog, start background export thread.
 
         Args:
             None
@@ -411,51 +519,38 @@ class UnbagApp(QtWidgets.QWidget):
         Returns:
             None
         """
-        # Run export in background with progress dialog
+        try:
+            config, global_config = self.get_export_config()
+        except ValueError as e:
+            QtWidgets.QMessageBox.critical(self, "Configuration Error", str(e))
+            return
+
         self.setEnabled(False)
-        self.wait_dialog = ExportProgressDialog("Exporting, please wait...", self)
-        self.wait_dialog.setWindowTitle("Exporting")
-        # Block users from interacting with the main window
-        self.wait_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        self.wait_dialog.resize(400, 100)
-        self.wait_dialog.setValue(0)
+        self.wait_dialog = LoadingDialog("Exporting...", self, indeterminate=False)
         self.wait_dialog.show()
         self.wait_dialog.finished.connect(self.on_export_aborted)
         QtWidgets.QApplication.processEvents()
-
-        config = None
-
-        try:
-            config, global_config = self.export_options.get_export_config()
-        except ValueError as e:
-            self.wait_dialog.close()
-            QtWidgets.QMessageBox.critical(self, "Configuration Error", str(e))
-            self.setEnabled(True)
-            self.show_export_settings_page()  # show the config UI again
-            return
-        
-        self.last_used_config = config
-        self.last_used_global_config = global_config
 
         self.worker = WorkerThread(self.run_export, self.bag_reader, config, global_config)
         self.worker.finished.connect(self.on_export_finished)
         self.worker.error.connect(self.handle_export_error)
         self.worker.start()
 
-
     def run_export(self, bag_reader, config, global_config):
         """
-        Validate config, instantiate Exporter with progress callback, and run export process.
+        Execute the export process in a background thread with progress updates.
+        
+        Creates an Exporter instance with a progress callback that updates the
+        loading dialog, then runs the export.
 
         Args:
             bag_reader: BagReader instance.
-            config: Dict of per-topic export configuration.
-            global_config: Dict of global settings.
+            config: Per-topic export configuration dictionary.
+            global_config: Global export settings dictionary.
 
         Returns:
             None
         """
-        # Run export using Exporter with progress updates
         def progress(current, total):
             value = int((current / total) * 100)
             QtCore.QMetaObject.invokeMethod(
@@ -464,20 +559,15 @@ class UnbagApp(QtWidgets.QWidget):
                 Q_ARG(int, value)
             )
         
-        # If this fails, it will raise an exception that is caught in the worker thread
-        self._validate_config(config)
-        
         self.current_exporter = Exporter(bag_reader, config, global_config, progress_callback=progress)
         self.current_exporter.run()
-        
-        return None
 
     def on_export_finished(self, _):
         """
-        Close progress dialog, re-enable UI, notify user of completion, and return to export settings.
+        Handle successful export completion: close dialog, re-enable UI, show success message.
 
         Args:
-            _: Unused.
+            _: Unused result from worker thread.
 
         Returns:
             None
@@ -486,15 +576,12 @@ class UnbagApp(QtWidgets.QWidget):
         self.setEnabled(True)
         QtWidgets.QMessageBox.information(self, "Done", "Export complete.")
 
-        # Return to export settings page with previous config
-        self.show_export_settings_page(config=self.last_used_config, global_config=self.last_used_global_config)
-
     def on_export_aborted(self, _):
         """
-        Send out a runtime error, to cleanly kill all workers.
+        Handle export abortion: signal the exporter to cleanly stop all workers.
 
         Args:
-            _: Unused.
+            _: Unused dialog result.
 
         Returns:
             None
@@ -502,54 +589,23 @@ class UnbagApp(QtWidgets.QWidget):
         if self.current_exporter:
             self.current_exporter.abort_export()
 
-    @QtCore.Slot(Exception)
     def handle_export_error(self, e):
         """
-        Terminate export thread on error, show error message, and quit application.
+        Handle export errors: close dialog, re-enable UI, show error message.
 
         Args:
-            e: Exception instance.
+            e: Exception instance from the export process.
 
         Returns:
             None
         """
         self.wait_dialog.close()
         self.setEnabled(True)
-
         QtWidgets.QMessageBox.critical(self, "Export Error", str(e))
-        
-        # Return to export settings page with previous config
-        self.worker.terminate()
-        self.show_export_settings_page(config=self.last_used_config, global_config=self.last_used_global_config)
-
-    def clear_layout(self):
-        """
-        Recursively remove and delete all widgets and sublayouts from the main layout.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        while self.layout.count():
-            item = self.layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-            else:
-                sublayout = item.layout()
-                if sublayout is not None:
-                    while sublayout.count():
-                        subitem = sublayout.takeAt(0)
-                        subwidget = subitem.widget()
-                        if subwidget is not None:
-                            subwidget.deleteLater()
-                    sublayout.deleteLater()
 
     def save_config_file(self):
         """
-        Prompt for save path, retrieve export config, ensure directory exists, and write JSON config to file.
+        Prompt for save path, collect all topic and global configs, and write to JSON file.
 
         Args:
             None
@@ -557,40 +613,34 @@ class UnbagApp(QtWidgets.QWidget):
         Returns:
             None
         """
-        # Open file dialog to get save path
         file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save Config File", str(Path.cwd() / "config.json"), "Config Files (*.json)")
+            self, "Save Config", str(Path.cwd() / "config.json"), "JSON (*.json)")
         if not file_path:
             return
         
-        # Load the export options and global config
         try:
-            config, global_config = self.export_options.get_export_config()
-            config["__global__"] = global_config
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Cannot get config: {e}")
-            return
-        
-        # Ensure the directory exists
-        config_path = Path(file_path)
-        if not config_path.parent.exists():
-            try:
-                config_path.parent.mkdir(parents=True, exist_ok=True)
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Error", f"Failed to create directory: {e}")
-                return
-        
-        # Save the config to the specified file
-        try:
+            # Save ALL known config, or just selected?
+            # Usually save all config so it can be reloaded.
+            # But we also need global config.
+            
+            # Update current topic first
+            current = self.topic_settings.current_topic
+            if current:
+                self.topics_config[current].update(self.topic_settings.get_config())
+                
+            full_config = self.topics_config.copy()
+            full_config["__global__"] = self.global_settings.get_config()
+            
             with open(file_path, "w") as f:
-                json.dump(config, f, indent=2)
-            QtWidgets.QMessageBox.information(self, "Saved", f"Config saved as {config_path}")
+                json.dump(full_config, f, indent=2)
+            
+            self.status_bar.showMessage(f"Saved config to {file_path}")
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to save config: {e}")
+            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to save: {e}")
 
     def load_config_file(self):
         """
-        Prompt for config file, load JSON, extract global settings, and populate export settings UI.
+        Prompt for config file, load JSON, extract global settings, and populate UI with loaded configuration.
 
         Args:
             None
@@ -598,21 +648,28 @@ class UnbagApp(QtWidgets.QWidget):
         Returns:
             None
         """
-        # Open file dialog to load config
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load Config", str(Path.cwd()), "Config Files (*.json)")
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Load Config", str(Path.cwd()), "JSON (*.json)")
         if not file_path:
             return
+        
         try:
-            # Parse global config if it exists
             with open(file_path, "r") as f:
                 config = json.load(f)
+            
             if "__global__" in config:
-                global_config = config.pop("__global__")
-            else:
-                global_config = {}
-
-            # Configure export options with loaded config
-            self.show_export_settings_page(config, global_config)
-            QtWidgets.QMessageBox.information(self, "Loaded", f"Config loaded from {file_path}")
+                self.global_settings.set_config(config.pop("__global__"))
+            
+            self.topics_config = config
+            
+            # Refresh current topic if selected
+            current = self.topic_settings.current_topic
+            if current and current in self.topics_config:
+                # Need to re-set topic to refresh UI
+                # We need type though.
+                t_type = self.topic_settings.current_type
+                self.topic_settings.set_topic(current, t_type, self.topics_config[current])
+            
+            self.status_bar.showMessage(f"Loaded config from {file_path}")
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to load config: {e}")
+            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to load: {e}")

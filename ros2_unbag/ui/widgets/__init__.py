@@ -23,5 +23,15 @@
 from .export_options import ExportOptions
 from .processor_chain import ProcessorChainWidget
 from .topic_selector import TopicSelector
+from .topic_list import TopicListWidget
+from .topic_settings import TopicSettingsWidget
+from .global_settings import GlobalSettingsWidget
 
-__all__ = ["ProcessorChainWidget", "TopicSelector", "ExportOptions"]
+__all__ = [
+    "ProcessorChainWidget", 
+    "TopicSelector", 
+    "ExportOptions",
+    "TopicListWidget",
+    "TopicSettingsWidget",
+    "GlobalSettingsWidget"
+]
