@@ -145,17 +145,18 @@ class TopicSettingsWidget(QtWidgets.QWidget):
 
         self.layout.addWidget(self.content_widget)
         
-        # Help Text
-        help_text = QtWidgets.QLabel(
-            "Placeholders:\n"
-            "%name (topic name)\n"
-            "%index (msg idx)\n"
-            "%timestamp (msg timestamp in nanoseconds)\n"
-            "%Y-%m-%d_%H-%M-%S (timestamp)"
-        )
-        help_text.setStyleSheet("color: gray; font-style: italic; margin-top: 20px;")
-        self.layout.addWidget(help_text)
+        # Help Text (hidden until a topic is selected)
         self.layout.addStretch()
+        self.help_text = QtWidgets.QLabel(
+            "Placeholders:\n"
+            "  %name (topic name)\n"
+            "  %index (msg idx)\n"
+            "  %timestamp (msg timestamp in nanoseconds)\n"
+            "  %Y-%m-%d_%H-%M-%S (timestamp)"
+        )
+        self.help_text.setStyleSheet("color: gray; font-style: italic; margin-top: 20px;")
+        self.help_text.setVisible(False)
+        self.layout.addWidget(self.help_text)
 
         # Connect change signals
         self.path_edit.editingFinished.connect(self._emit_change)
@@ -212,6 +213,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         
         self.header_label.setText(f"Settings: {topic}")
         self.content_widget.setVisible(True)
+        self.help_text.setVisible(True)
 
         # Block signals to prevent auto-saving during load
         self.blockSignals(True)

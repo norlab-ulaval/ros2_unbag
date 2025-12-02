@@ -333,6 +333,13 @@ class UnbagApp(QtWidgets.QMainWindow):
         # Status Bar
         self.status_bar = QtWidgets.QStatusBar()
         self.setStatusBar(self.status_bar)
+        self.status_progress = QtWidgets.QProgressBar()
+        self.status_progress.setRange(0, 0)  # indeterminate by default
+        self.status_progress.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self.status_progress.setTextVisible(False)
+        self.status_progress.setVisible(False)
+        self.status_bar.addPermanentWidget(self.status_progress, 1)  # stretch across remaining space
+        self._update_status_progress_width()
         self.status_bar.showMessage("Ready")
 
     def show_init_screen(self):
@@ -374,14 +381,14 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.topics_config = {}
         self.topic_settings.default_folder = self.bag_path.parent
         
-        # Show loading
-        self.wait_dialog = LoadingDialog("Loading bag file...", self, indeterminate=True)
-        self.wait_dialog.show()
-        QtWidgets.QApplication.processEvents()
+        # Show loading in status bar
+        self.status_progress.setRange(0, 0)  # indeterminate pulse
+        self.status_progress.setVisible(True)
+        self.status_bar.showMessage("Loading bag file...")
 
         self.worker = WorkerThread(lambda p: BagReader(p), bag_path)
         self.worker.finished.connect(self.on_bag_loaded)
-        self.worker.error.connect(lambda e: QtWidgets.QMessageBox.critical(self, "Error", str(e)))
+        self.worker.error.connect(self.handle_bag_error)
         self.worker.start()
 
     def on_bag_loaded(self, reader):
@@ -394,7 +401,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         Returns:
             None
         """
-        self.wait_dialog.close()
+        self.status_progress.setVisible(False)
         self.bag_reader = reader
         
         # Populate Topic List
@@ -414,6 +421,35 @@ class UnbagApp(QtWidgets.QMainWindow):
         
         self.status_bar.showMessage(f"Loaded {self.bag_path.name}")
         self.update_summary()
+
+    def resizeEvent(self, event):
+        """
+        Keep the status bar progress indicator at ~80% of the available width and anchored right.
+        """
+        super().resizeEvent(event)
+        self._update_status_progress_width()
+
+    def _update_status_progress_width(self):
+        """
+        Adjust the status bar progress width to roughly 80% of the status bar space.
+        """
+        if hasattr(self, "status_bar") and hasattr(self, "status_progress"):
+            target = max(120, int(self.status_bar.width() * 0.8))
+            self.status_progress.setFixedWidth(target)
+
+    def handle_bag_error(self, e):
+        """
+        Handle errors that occur while loading a bag file.
+
+        Args:
+            e: Exception instance raised during bag loading.
+
+        Returns:
+            None
+        """
+        self.status_progress.setVisible(False)
+        self.status_bar.showMessage("Failed to load bag")
+        QtWidgets.QMessageBox.critical(self, "Error", str(e))
 
     def on_topic_selected(self, topic):
         """

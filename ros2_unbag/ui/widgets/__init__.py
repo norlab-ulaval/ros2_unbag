@@ -20,17 +20,13 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .export_options import ExportOptions
 from .processor_chain import ProcessorChainWidget
-from .topic_selector import TopicSelector
 from .topic_list import TopicListWidget
 from .topic_settings import TopicSettingsWidget
 from .global_settings import GlobalSettingsWidget
 
 __all__ = [
     "ProcessorChainWidget", 
-    "TopicSelector", 
-    "ExportOptions",
     "TopicListWidget",
     "TopicSettingsWidget",
     "GlobalSettingsWidget"
