@@ -20,6 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+"""
+Global Settings Widget Module.
+
+Provides the GlobalSettingsWidget class for configuring application-wide export
+settings in the ros2_unbag GUI. This widget appears in the right column and manages
+CPU usage limits, resampling configuration, and the main export action.
+"""
+
 from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
@@ -34,13 +42,18 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
     Widget for global export settings and summary display.
     
     This widget provides controls for:
-    - CPU usage limit configuration
-    - Topic resampling/synchronization settings (association strategy and epsilon)
-    - Export summary showing selected vs total topics
-    - Main export action button
+    - CPU usage limit configuration (percentage slider)
+    - Global resampling settings (master topic, association strategy, epsilon)
+    - Base output directory selection
+    - Export summary showing selected topic count
+    - Export action button to trigger the export process
+    
+    The resampling feature allows synchronizing multiple topics to a master topic's
+    timeline, useful for temporal alignment of sensor data.
     
     Signals:
         export_clicked: Emitted when the export button is clicked
+        base_dir_changed (str): Emitted when the base output directory is changed
     """
     
     export_clicked = QtCore.Signal()

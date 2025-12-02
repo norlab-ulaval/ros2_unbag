@@ -20,6 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+"""
+Topic Settings Widget Module.
+
+Provides the TopicSettingsWidget class for configuring per-topic export settings
+in the ros2_unbag GUI. This widget appears in the middle column and adapts its
+controls based on the selected topic's message type.
+"""
+
 from PySide6 import QtCore, QtWidgets, QtGui
 from pathlib import Path
 
@@ -38,7 +46,6 @@ __all__ = ["TopicSettingsWidget"]
 
 
 class TopicSettingsWidget(QtWidgets.QWidget):
-    export_toggle_requested = QtCore.Signal(str)
     """
     Widget for configuring export settings for a single ROS2 topic.
     
@@ -52,13 +59,16 @@ class TopicSettingsWidget(QtWidgets.QWidget):
     - Processor chain configuration
     
     The widget dynamically adapts its UI based on the topic's message type, showing
-    only relevant formats and processors.
+    only relevant formats and processors. When no topic is selected, displays a
+    centered banner image that scales to fit the scroll area viewport.
     
     Signals:
+        export_toggle_requested (str): Emitted when the export badge is clicked, passes topic name
         settings_changed (str, dict): Emitted when any setting changes, passes topic name and updated config dict
     """
     
-    # Signal emitted when settings change, so the main window can update the config state
+    # Signals
+    export_toggle_requested = QtCore.Signal(str)
     settings_changed = QtCore.Signal(str, dict)  # topic_name, new_config
 
     def __init__(self, default_folder, parent=None):
@@ -76,6 +86,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.default_folder = default_folder
         self.current_topic = None
         self.current_type = None
+        self._scroll_area = None  # Will be set when added to scroll area
         self.init_ui()
 
     def init_ui(self):
@@ -185,11 +196,10 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.placeholder = QtWidgets.QLabel()
         self.placeholder.setAlignment(QtCore.Qt.AlignCenter)
         self.placeholder.setVisible(True)
-        self.placeholder.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.placeholder.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Expanding)
+        self.placeholder.setScaledContents(False)  # We'll handle scaling manually
         img_path = Path(__file__).resolve().parent.parent / "assets" / "title.png"
         self._placeholder_pixmap = QtGui.QPixmap(str(img_path)) if img_path.exists() else None
-        if self._placeholder_pixmap:
-            self._update_placeholder_pixmap()
         self.layout.addWidget(self.placeholder)
         self.layout.setAlignment(self.placeholder, QtCore.Qt.AlignCenter)
         
@@ -500,19 +510,77 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.mode_combo.blockSignals(False)
         self._sync_naming_with_mode(initial=True)
 
+    def showEvent(self, event):
+        """
+        Handle widget show events and set up scroll area connection.
+        """
+        super().showEvent(event)
+        # Find and monitor the scroll area parent for resize events
+        if not self._scroll_area:
+            parent = self.parent()
+            if isinstance(parent, QtWidgets.QScrollArea):
+                self._scroll_area = parent
+                # Install event filter to catch scroll area resize events
+                self._scroll_area.installEventFilter(self)
+        # Update placeholder on first show
+        if self._placeholder_pixmap:
+            QtCore.QTimer.singleShot(0, self._update_placeholder_pixmap)
+    
+    def eventFilter(self, obj, event):
+        """
+        Filter events from the parent scroll area to detect resizes.
+        """
+        if obj == self._scroll_area and event.type() == QtCore.QEvent.Resize:
+            # Delay update slightly to ensure layout is complete
+            if self._placeholder_pixmap and self.placeholder.isVisible():
+                QtCore.QTimer.singleShot(10, self._update_placeholder_pixmap)
+        return super().eventFilter(obj, event)
+    
     def resizeEvent(self, event):
+        """
+        Handle widget resize events.
+        """
         super().resizeEvent(event)
-        self._update_placeholder_pixmap()
+        # Update placeholder when widget itself resizes
+        if self._placeholder_pixmap and self.placeholder.isVisible():
+            QtCore.QTimer.singleShot(10, self._update_placeholder_pixmap)
 
     def _update_placeholder_pixmap(self):
         """
-        Scale placeholder image to fit the available width while centering.
+        Scale placeholder image to fit the scroll area viewport width precisely.
+        
+        Uses the scroll area's viewport width to calculate the exact available
+        width for the banner image, accounting for layout margins.
         """
         if not self._placeholder_pixmap or not self.placeholder.isVisible():
             return
-        margins = self.layout.contentsMargins()
-        available_width = max(200, self.width() - (margins.left() + margins.right()))
-        scaled = self._placeholder_pixmap.scaledToWidth(available_width, QtCore.Qt.SmoothTransformation)
+        
+        # Calculate available width from scroll area viewport
+        available_width = 400  # Fallback default
+        
+        if self._scroll_area:
+            # Get viewport width from scroll area
+            viewport_width = self._scroll_area.viewport().width()
+            # Account for scroll area's internal spacing and margins
+            margins = self.layout.contentsMargins()
+            # Subtract scroll bar width if visible
+            scrollbar_width = 0
+            if self._scroll_area.verticalScrollBar().isVisible():
+                scrollbar_width = self._scroll_area.verticalScrollBar().width()
+            available_width = viewport_width - (margins.left() + margins.right()) - scrollbar_width - 20  # Extra padding
+        else:
+            # Fallback: try to use widget width
+            margins = self.layout.contentsMargins()
+            available_width = self.width() - (margins.left() + margins.right()) - 20
+        
+        # Ensure minimum width
+        available_width = max(200, available_width)
+        
+        # Scale pixmap to fit width while maintaining aspect ratio
+        scaled = self._placeholder_pixmap.scaledToWidth(
+            int(available_width), 
+            QtCore.Qt.SmoothTransformation
+        )
         self.placeholder.setPixmap(scaled)
 
     def _emit_change(self):

@@ -20,6 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+"""
+Processor Chain Widget Module.
+
+Provides the ProcessorChainWidget for building ordered chains of data processors.
+Each processor transforms topic data before export, and processors are applied
+sequentially in the configured order.
+"""
+
 import inspect
 
 from PySide6 import QtCore, QtWidgets
@@ -31,7 +39,20 @@ __all__ = ["ProcessorChainWidget"]
 
 
 class ProcessorChainWidget(QtWidgets.QWidget):
-    """Widget to configure an ordered chain of processors for a topic."""
+    """
+    Widget to configure an ordered chain of processors for a topic.
+    
+    Allows users to add, remove, reorder, and configure data processors that will
+    be applied sequentially to topic messages before export. Each processor can have
+    its own configuration arguments that are dynamically generated based on the
+    processor's signature.
+    
+    The widget provides:
+    - Add/remove processor entries
+    - Reorder processors with up/down buttons
+    - Configure processor-specific arguments with inline help
+    - Visual indication when no processors are configured
+    """
 
     def __init__(self, topic_type, available_processors, parent=None):
         """

@@ -20,6 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+"""
+Topic List Widget Module.
+
+Provides the TopicListWidget class for displaying ROS2 bag topics in a filterable,
+checkable list. This widget appears in the left column of the GUI and manages
+topic selection state for the export process.
+"""
+
 from PySide6 import QtCore, QtWidgets, QtGui
 
 from ros2_unbag.ui.styles import TOPIC_LIST_STYLE, GRAY_SOFT, CHECKED_BG
@@ -33,13 +41,17 @@ class TopicListWidget(QtWidgets.QWidget):
     
     This widget provides a list view of all topics in a bag file, allowing users to:
     - Select topics for export via checkboxes
-    - Click on a topic to edit its settings
-    - Filter topics by name
-    - Bulk select/deselect all topics
+    - Filter topics by name using a search box
+    - Select all or clear all topics with bulk actions
+    - Click on a topic row to view its detailed settings
+    
+    Topics are displayed with their name, message type, and message count.
+    The widget maintains a mapping of topic names to their list items for efficient
+    state tracking and updates.
     
     Signals:
-        topic_selected (str): Emitted when a topic is clicked for editing, passes topic name
-        topic_toggled (str, bool): Emitted when a topic's checkbox state changes, passes topic name and checked state
+        topic_selected (str): Emitted when a topic row is clicked, passes the topic name
+        topic_toggled (str, bool): Emitted when a topic checkbox changes, passes topic name and new state
     """
     
     # Signal emitted when a topic is selected for editing (name)
@@ -175,20 +187,28 @@ class TopicListWidget(QtWidgets.QWidget):
 
     def on_item_changed(self, item, column):
         """
-        Emit topic toggled when a topic checkbox changes.
+        Handle checkbox state changes and emit topic_toggled signal.
+        
+        Called whenever a checkbox state changes in the topic list.
+        Emits the topic_toggled signal with the topic name and new state.
+        
+        Args:
+            item: The QTreeWidgetItem that changed.
+            column: The column index that changed (0 for checkbox).
         """
-        if not item or not item.parent() or column != 0:
-            return
-        topic = item.data(0, QtCore.Qt.UserRole)
-        if topic:
-            self._apply_checked_style(item, item.checkState(0) == QtCore.Qt.Checked)
-            self.topic_toggled.emit(topic, item.checkState(0) == QtCore.Qt.Checked)
+        if column == 0 and item and item.parent():  # Only process checkbox changes on child items
+            topic = item.data(0, QtCore.Qt.UserRole)
+            if topic:
+                is_checked = item.checkState(0) == QtCore.Qt.Checked
+                self._apply_checked_style(item, is_checked)
+                self.topic_toggled.emit(topic, is_checked)
 
     def filter_topics(self, text):
         """
         Filter the topic list based on search text.
         
         Hides topics that don't contain the search text (case-insensitive).
+        Empty search text shows all topics.
 
         Args:
             text: Search string to filter topics by.
@@ -196,9 +216,17 @@ class TopicListWidget(QtWidgets.QWidget):
         Returns:
             None
         """
-        lower = text.lower()
-        for topic, item in self.topics.items():
-            item.setHidden(lower not in topic.lower())
+        search_text = text.lower()
+        for topic_name, item in self.topics.items():
+            # Show item if search text is empty or found in topic name
+            matches = search_text in topic_name.lower() if search_text else True
+            item.setHidden(not matches)
+            
+            # Optionally also search in message type (parent's text)
+            if not matches and search_text and item.parent():
+                msg_type = item.parent().text(0)
+                matches = search_text in msg_type.lower()
+                item.setHidden(not matches)
 
         # Hide parent groups that have no visible children
         for i in range(self.tree_widget.topLevelItemCount()):
@@ -234,14 +262,26 @@ class TopicListWidget(QtWidgets.QWidget):
 
     def is_checked(self, topic):
         """
-        Return True if the given topic is currently checked.
+        Return True if the given topic is currently checked for export.
+        
+        Args:
+            topic: Topic name string to check.
+        
+        Returns:
+            bool: True if topic is checked, False otherwise.
         """
         item = self.topics.get(topic)
-        return bool(item and item.checkState(0) == QtCore.Qt.Checked)
+        return item.checkState(0) == QtCore.Qt.Checked if item else False
 
     def set_checked(self, topic, checked, *, block_signals=False):
         """
         Set the checked state of a topic row.
+        
+        Args:
+            topic (str): The name of the topic to set the state for.
+            checked (bool): True to check the topic, False to uncheck.
+            block_signals (bool): If True, signals will be temporarily blocked
+                                  to prevent `on_item_changed` from being called.
         """
         item = self.topics.get(topic)
         if not item:
@@ -255,8 +295,18 @@ class TopicListWidget(QtWidgets.QWidget):
 
     def _apply_checked_style(self, item, checked):
         """
-        Highlight checked items
+        Apply visual styling to highlight checked items.
+        
+        Changes the background color of checked items to provide clear
+        visual feedback about export selection state.
+        
+        Args:
+            item: QTreeWidgetItem to style.
+            checked: Boolean indicating if item is checked.
         """
-        brush = QtGui.QBrush(QtGui.QColor(CHECKED_BG)) if checked else QtGui.QBrush()
-        item.setBackground(0, brush)
-        item.setBackground(1, brush)
+        if checked:
+            for col in range(item.columnCount()): # Apply to all columns
+                item.setBackground(col, QtGui.QBrush(QtGui.QColor(CHECKED_BG)))
+        else:
+            for col in range(item.columnCount()): # Clear background for all columns
+                item.setBackground(col, QtGui.QBrush())

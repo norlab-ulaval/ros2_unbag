@@ -20,6 +20,19 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+"""
+Main Window Module.
+
+Provides the UnbagApp main application window for the ros2_unbag GUI.
+Orchestrates the entire export workflow through a 3-column layout:
+- Left: Bag file loading and topic selection
+- Middle: Per-topic export configuration
+- Right: Global settings and export action
+
+This module also includes worker thread and loading dialog classes for
+asynchronous operations to keep the UI responsive during long-running tasks.
+"""
+
 import json
 from pathlib import Path
 
@@ -525,7 +538,8 @@ class UnbagApp(QtWidgets.QMainWindow):
         Returns:
             None
         """
-        # Merge new config
+        # Merge new config into existing config, preserving any keys not in new_config
+        # This allows partial updates without losing other settings
         if topic not in self.topics_config:
             self.topics_config[topic] = {}
         self.topics_config[topic].update(new_config)
@@ -550,10 +564,14 @@ class UnbagApp(QtWidgets.QMainWindow):
 
     def on_badge_toggle(self, topic):
         """
-        Toggle topic export selection when badge is clicked.
+        Toggle topic export selection when the export badge is clicked in topic settings.
+        
+        Args:
+            topic: Topic name string to toggle.
         """
         if topic not in self.topic_list.topics:
             return
+        # Toggle the checkbox state in the topic list
         new_state = not self.topic_list.is_checked(topic)
         self.topic_list.set_checked(topic, new_state)
 
