@@ -218,6 +218,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         # Top Bar
         top_bar = QtWidgets.QWidget()
         top_bar.setObjectName("topBar")
+        top_bar.setFixedHeight(60)
         top_bar.setStyleSheet(
             "#topBar { background-color: #f4f6fb; border-bottom: 1px solid #d7dce4; }"
             "#topBar QLabel#title { color: #0f172a; font-size: 20px; font-weight: bold; font-family: 'Ubuntu', 'Ubuntu Bold', 'Ubuntu Medium', monospace; }"
@@ -227,6 +228,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         )
         top_layout = QtWidgets.QHBoxLayout(top_bar)
         top_layout.setContentsMargins(12, 0, 12, 0)
+        top_layout.setSpacing(10)
         icon_label = QtWidgets.QLabel()
         icon_path = Path(__file__).resolve().parent / "assets/badge.svg"
         if icon_path.exists():
@@ -245,10 +247,14 @@ class UnbagApp(QtWidgets.QMainWindow):
 
         # Columns container
         columns_container = QtWidgets.QWidget()
-        self.main_layout = QtWidgets.QHBoxLayout(columns_container)
-        self.main_layout.setContentsMargins(10, 10, 10, 10)
-        self.main_layout.setSpacing(10)
+        columns_layout = QtWidgets.QHBoxLayout(columns_container)
+        columns_layout.setContentsMargins(10, 10, 10, 10)
+        columns_layout.setSpacing(0)
         root_layout.addWidget(columns_container)
+        splitter = QtWidgets.QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(6)
+        columns_layout.addWidget(splitter)
 
         # 1. Left Column: Bag & Topics
         left_container = QtWidgets.QWidget()
@@ -285,14 +291,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         cfg_layout.addWidget(self.btn_save_cfg)
         left_layout.addLayout(cfg_layout)
 
-        left_container.setFixedWidth(340)
-        self.main_layout.addWidget(left_container)
-        sep1 = QtWidgets.QFrame()
-        sep1.setFrameShape(QtWidgets.QFrame.VLine)
-        sep1.setFrameShadow(QtWidgets.QFrame.Sunken)
-        sep1.setFixedWidth(1)
-        sep1.setStyleSheet("background-color: #d7dce4;")
-        self.main_layout.addWidget(sep1)
+        splitter.addWidget(left_container)
 
         # 2. Middle Column: Settings
         self.topic_settings = TopicSettingsWidget(Path.cwd())
@@ -307,13 +306,7 @@ class UnbagApp(QtWidgets.QMainWindow):
             "QScrollArea { border: 1px solid #d7dce4; border-radius: 6px; background: #ffffff; }"
             "QScrollArea > QWidget > QWidget { background: #ffffff; }"
         )
-        self.main_layout.addWidget(scroll, stretch=1)
-        sep2 = QtWidgets.QFrame()
-        sep2.setFrameShape(QtWidgets.QFrame.VLine)
-        sep2.setFrameShadow(QtWidgets.QFrame.Sunken)
-        sep2.setFixedWidth(1)
-        sep2.setStyleSheet("background-color: #d7dce4;")
-        self.main_layout.addWidget(sep2)
+        splitter.addWidget(scroll)
 
         # 3. Right Column: Global & Summary
         self.global_settings = GlobalSettingsWidget()
@@ -321,6 +314,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.global_settings.setFixedWidth(300)
         global_wrapper = QtWidgets.QWidget()
         global_wrapper.setObjectName("globalContainer")
+        global_wrapper.setFixedWidth(300)
         global_wrapper.setStyleSheet(
             "#globalContainer { background-color: #f7f9fc; border: 1px solid #d7dce4; border-radius: 6px; }"
             "#globalContainer QGroupBox { font-weight: bold; }"
@@ -328,7 +322,8 @@ class UnbagApp(QtWidgets.QMainWindow):
         global_layout = QtWidgets.QVBoxLayout(global_wrapper)
         global_layout.setContentsMargins(0, 0, 0, 0)
         global_layout.addWidget(self.global_settings)
-        self.main_layout.addWidget(global_wrapper)
+        splitter.addWidget(global_wrapper)
+        splitter.setSizes([350, 650, 300])
 
         # Status Bar
         self.status_bar = QtWidgets.QStatusBar()
