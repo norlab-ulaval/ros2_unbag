@@ -211,7 +211,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.current_topic = topic
         self.current_type = topic_type
         
-        self.header_label.setText(f"Settings: {topic}")
+        self.header_label.setText(f"Export Settings:\n{topic}")
         self.content_widget.setVisible(True)
         self.help_text.setVisible(True)
 

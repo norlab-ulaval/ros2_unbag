@@ -56,7 +56,7 @@ class TopicListWidget(QtWidgets.QWidget):
             None
         """
         super().__init__(parent)
-        self.topics = {}  # topic_name -> QListWidgetItem mapping
+        self.topics = {}  # topic_name -> QTreeWidgetItem mapping
         self.init_ui()
 
     def init_ui(self):
@@ -87,10 +87,19 @@ class TopicListWidget(QtWidgets.QWidget):
         layout.addWidget(self.filter_edit)
 
         # List
-        self.list_widget = QtWidgets.QListWidget()
-        self.list_widget.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
-        self.list_widget.itemClicked.connect(self.on_item_clicked)
-        layout.addWidget(self.list_widget)
+        self.tree_widget = QtWidgets.QTreeWidget()
+        self.tree_widget.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.tree_widget.setHeaderLabels(["Topic", "Message Count"])
+        self.tree_widget.setColumnCount(2)
+        header = self.tree_widget.header()
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
+        header.setStretchLastSection(False)
+        self.tree_widget.setRootIsDecorated(False)
+        self.tree_widget.setStyleSheet("QTreeWidget::item { height: 28px; }")
+        self.tree_widget.itemClicked.connect(self.on_item_clicked)
+        self.tree_widget.itemChanged.connect(self.on_item_changed)
+        layout.addWidget(self.tree_widget)
 
         # Bottom controls
         btn_layout = QtWidgets.QHBoxLayout()
@@ -117,55 +126,38 @@ class TopicListWidget(QtWidgets.QWidget):
         Returns:
             None
         """
-        self.list_widget.clear()
+        self.tree_widget.clear()
         self.topics = {}
-        
-        # Flatten and sort
-        all_topics = []
-        for msg_type, topic_list in topics_dict.items():
-            for topic in topic_list:
-                all_topics.append((topic, msg_type))
-        
-        all_topics.sort(key=lambda x: x[0])
 
-        for topic, msg_type in all_topics:
-            count = message_counts.get(topic, 0)
-            item = QtWidgets.QListWidgetItem()
-            
-            # Custom widget for the item to hold checkbox and text
-            widget = QtWidgets.QWidget()
-            h_layout = QtWidgets.QHBoxLayout(widget)
-            h_layout.setContentsMargins(5, 2, 5, 2)
-            
-            checkbox = QtWidgets.QCheckBox()
-            checkbox.setChecked(False) # Default off? Or on?
-            checkbox.toggled.connect(lambda c, t=topic: self.topic_toggled.emit(t, c))
-            
-            # Label with topic name and count
-            # We use a VBox for name and type/count to look nice
-            text_layout = QtWidgets.QVBoxLayout()
-            text_layout.setSpacing(0)
-            
-            name_label = QtWidgets.QLabel(topic)
-            name_label.setStyleSheet("font-weight: bold;")
-            
-            info_label = QtWidgets.QLabel(f"{msg_type} • {count} msgs")
-            info_label.setStyleSheet("color: gray; font-size: 10px;")
-            
-            text_layout.addWidget(name_label)
-            text_layout.addWidget(info_label)
-            
-            h_layout.addWidget(checkbox)
-            h_layout.addLayout(text_layout)
-            h_layout.addStretch()
-            
-            item.setSizeHint(widget.sizeHint())
-            self.list_widget.addItem(item)
-            self.list_widget.setItemWidget(item, widget)
-            
-            # Store reference to checkbox to control it later
-            item.setData(QtCore.Qt.UserRole, checkbox)
-            self.topics[topic] = item
+        # Build grouped tree: message type -> topics
+        header_font = QtGui.QFont(self.tree_widget.font())
+        header_font.setBold(True)
+        for msg_type in sorted(topics_dict.keys()):
+            parent = QtWidgets.QTreeWidgetItem([msg_type, ""])
+            parent.setFirstColumnSpanned(True)
+            parent.setFlags(QtCore.Qt.ItemIsEnabled)
+            parent.setFont(0, header_font)
+            bg = QtGui.QColor("#f2f2f2")
+            parent.setBackground(0, bg)
+            parent.setBackground(1, bg)
+            self.tree_widget.addTopLevelItem(parent)
+
+            for topic in sorted(topics_dict[msg_type]):
+                count = message_counts.get(topic, 0)
+                child = QtWidgets.QTreeWidgetItem([topic, f"{count}"])
+                child.setData(0, QtCore.Qt.UserRole, topic)
+                child.setFlags(
+                    QtCore.Qt.ItemIsEnabled
+                    | QtCore.Qt.ItemIsSelectable
+                    | QtCore.Qt.ItemIsUserCheckable
+                )
+                child.setCheckState(0, QtCore.Qt.Unchecked)
+                child.setTextAlignment(1, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+                parent.addChild(child)
+                self.topics[topic] = child
+
+        self.tree_widget.expandAll()
+        self.tree_widget.resizeColumnToContents(1)
 
     def on_item_clicked(self, item):
         """
@@ -180,10 +172,20 @@ class TopicListWidget(QtWidgets.QWidget):
         Returns:
             None
         """
-        for topic, it in self.topics.items():
-            if it == item:
+        if item and item.parent():  # ignore group headers
+            topic = item.data(0, QtCore.Qt.UserRole)
+            if topic:
                 self.topic_selected.emit(topic)
-                break
+
+    def on_item_changed(self, item, column):
+        """
+        Emit topic toggled when a topic checkbox changes.
+        """
+        if not item or not item.parent() or column != 0:
+            return
+        topic = item.data(0, QtCore.Qt.UserRole)
+        if topic:
+            self.topic_toggled.emit(topic, item.checkState(0) == QtCore.Qt.Checked)
 
     def filter_topics(self, text):
         """
@@ -197,8 +199,15 @@ class TopicListWidget(QtWidgets.QWidget):
         Returns:
             None
         """
+        lower = text.lower()
         for topic, item in self.topics.items():
-            item.setHidden(text.lower() not in topic.lower())
+            item.setHidden(lower not in topic.lower())
+
+        # Hide parent groups that have no visible children
+        for i in range(self.tree_widget.topLevelItemCount()):
+            parent = self.tree_widget.topLevelItem(i)
+            visible_children = any(not parent.child(j).isHidden() for j in range(parent.childCount()))
+            parent.setHidden(not visible_children)
 
     def select_all(self):
         """
@@ -211,9 +220,7 @@ class TopicListWidget(QtWidgets.QWidget):
             None
         """
         for item in self.topics.values():
-            cb = item.data(QtCore.Qt.UserRole)
-            if cb:
-                cb.setChecked(True)
+            item.setCheckState(0, QtCore.Qt.Checked)
 
     def select_none(self):
         """
@@ -226,6 +233,24 @@ class TopicListWidget(QtWidgets.QWidget):
             None
         """
         for item in self.topics.values():
-            cb = item.data(QtCore.Qt.UserRole)
-            if cb:
-                cb.setChecked(False)
+            item.setCheckState(0, QtCore.Qt.Unchecked)
+
+    def is_checked(self, topic):
+        """
+        Return True if the given topic is currently checked.
+        """
+        item = self.topics.get(topic)
+        return bool(item and item.checkState(0) == QtCore.Qt.Checked)
+
+    def set_checked(self, topic, checked, *, block_signals=False):
+        """
+        Set the checked state of a topic row.
+        """
+        item = self.topics.get(topic)
+        if not item:
+            return
+        if block_signals:
+            self.tree_widget.blockSignals(True)
+        item.setCheckState(0, QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked)
+        if block_signals:
+            self.tree_widget.blockSignals(False)

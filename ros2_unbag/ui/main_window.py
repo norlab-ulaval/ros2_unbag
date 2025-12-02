@@ -531,8 +531,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         selected_count = 0
         selected_topics = []
         for topic, item in self.topic_list.topics.items():
-            cb = item.data(QtCore.Qt.UserRole)
-            if cb and cb.isChecked():
+            if self.topic_list.is_checked(topic):
                 selected_count += 1
                 selected_topics.append(topic)
         
@@ -574,23 +573,16 @@ class UnbagApp(QtWidgets.QMainWindow):
             # Build list of selected topics
             selected_topics = [
                 topic for topic, item in self.topic_list.topics.items()
-                if item.data(QtCore.Qt.UserRole) and item.data(QtCore.Qt.UserRole).isChecked()
+                if self.topic_list.is_checked(topic)
             ]
             if not master_topic or master_topic not in selected_topics:
                 raise ValueError("Resampling enabled but no Master Topic selected among exported topics.")
 
         for topic, item in self.topic_list.topics.items():
-            cb = item.data(QtCore.Qt.UserRole)
-            if cb and cb.isChecked():
+            if self.topic_list.is_checked(topic):
                 # Get config, use defaults if not visited
                 cfg = self.topics_config.get(topic, {}).copy()
                 
-                # If format is missing, we need to default it. 
-                # But we don't know the type here easily without lookup.
-                # The Exporter might handle it or we should force default.
-                # Let's assume user visited or we do a quick default pass.
-                # Actually, if the user never clicked the topic, 'format' is empty.
-                # We should probably default it.
                 if not cfg.get("format"):
                      # Find type
                     t_type = next((k for k, v in self.bag_reader.get_topics().items() if topic in v), None)
@@ -768,12 +760,8 @@ class UnbagApp(QtWidgets.QMainWindow):
             # Apply selection state based on loaded config
             missing_topics = []
             for topic, item in self.topic_list.topics.items():
-                cb = item.data(QtCore.Qt.UserRole)
-                if cb:
-                    # block signals to avoid redundant updates while we toggle many items
-                    cb.blockSignals(True)
-                    cb.setChecked(topic in self.topics_config)
-                    cb.blockSignals(False)
+                # block signals to avoid redundant updates while we toggle many items
+                self.topic_list.set_checked(topic, topic in self.topics_config, block_signals=True)
             for topic in self.topics_config.keys():
                 if topic not in self.topic_list.topics and topic != "__global__":
                     missing_topics.append(topic)
