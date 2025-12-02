@@ -46,10 +46,7 @@ class ExportOptions(QtWidgets.QWidget):
         """
         super().__init__()
         self.config_widgets = {}
-        self.master_checkboxes = {}
         self.all_path_edits = []
-        self.master_group = QtWidgets.QButtonGroup(self)
-        self.master_group.setExclusive(True)  # ensure single master
         self.selected_topics = selected_topics
         self.all_topics = all_topics
         self.default_folder = default_folder
@@ -97,10 +94,15 @@ class ExportOptions(QtWidgets.QWidget):
         self.eps_hint = QtWidgets.QLabel("Required for 'nearest' strategy.")
         self.eps_hint.setStyleSheet("color: gray; font-style: italic;")
 
+        self.master_combo = QtWidgets.QComboBox()
+        self.master_combo.setEnabled(False)
+        self._refresh_master_topics()
+
         global_layout.addRow("CPU usage", cpu_layout)
         global_layout.addRow("Association Strategy", self.assoc_combo)
         global_layout.addRow("Discard Eps (s)", self.eps_edit)
         global_layout.addRow("", self.eps_hint)
+        global_layout.addRow("Master Topic", self.master_combo)
         global_group.setLayout(global_layout)
         layout.addWidget(global_group)
 
@@ -116,10 +118,27 @@ class ExportOptions(QtWidgets.QWidget):
             fmt_combo = QtWidgets.QComboBox()
             fmt_combo.addItems(ExportRoutine.get_formats(topic_type))
 
+            format_row = QtWidgets.QWidget()
+            format_layout = QtWidgets.QHBoxLayout(format_row)
+            format_layout.setContentsMargins(0, 0, 0, 0)
+            format_layout.setSpacing(8)
+            fmt_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+            format_layout.addWidget(fmt_combo)
+
             mode_label = QtWidgets.QLabel("Mode")
             mode_combo = QtWidgets.QComboBox()
             mode_label.setVisible(False)
             mode_combo.setVisible(False)
+            mode_container = QtWidgets.QWidget()
+            mode_layout = QtWidgets.QHBoxLayout(mode_container)
+            mode_layout.setContentsMargins(0, 0, 0, 0)
+            mode_layout.setSpacing(4)
+            mode_layout.addWidget(mode_label)
+            mode_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+            mode_layout.addWidget(mode_combo)
+            format_layout.addWidget(mode_container)
+            format_layout.setStretch(0, 1)
+            format_layout.setStretch(1, 1)
 
             # Output directory
             abs_path_edit = QtWidgets.QLineEdit()
@@ -230,12 +249,6 @@ class ExportOptions(QtWidgets.QWidget):
             fmt_combo.currentTextChanged.connect(_refresh_mode_controls)
             _refresh_mode_controls(fmt_combo.currentText())
 
-            # Master checkbox (mutually exclusive)
-            is_master_check = QtWidgets.QCheckBox(
-                "Set as Master for Resampling")
-            self.master_group.addButton(is_master_check)
-            self.master_checkboxes[topic] = is_master_check
-
             # Processing selection
             available_processors = Processor.get_formats(topic_type)
             if available_processors:
@@ -243,12 +256,10 @@ class ExportOptions(QtWidgets.QWidget):
             else:
                 proc_chain_widget = None
 
-            form_layout.addRow("Format", fmt_combo)
-            form_layout.addRow(mode_label, mode_combo)
+            form_layout.addRow("Format", format_row)
             form_layout.addRow("Output Directory", path_layout)
             form_layout.addRow("Subdirectory", rel_path_edit)
             form_layout.addRow("Naming", name_scheme_edit)
-            form_layout.addRow("Master Topic", is_master_check)
             if proc_chain_widget:
                 form_layout.addRow("Processors", proc_chain_widget)
 
@@ -263,7 +274,6 @@ class ExportOptions(QtWidgets.QWidget):
                 "output_dir": abs_path_edit,
                 "subdir": rel_path_edit,
                 "naming": name_scheme_edit,
-                "master_checkbox": is_master_check,
                 "processor_chain": proc_chain_widget,
             }
 
@@ -285,7 +295,7 @@ class ExportOptions(QtWidgets.QWidget):
 
     def _sync_mode_changed(self, mode):
         """
-        Enable or disable discard epsilon and master-topic checkboxes based on the selected resampling mode; set default eps for 'nearest'.
+        Enable or disable discard epsilon and master-topic selection based on the selected resampling mode; set default eps for 'nearest'.
 
         Args:
             mode: Selected association strategy (str).
@@ -296,17 +306,31 @@ class ExportOptions(QtWidgets.QWidget):
         enable = mode != "no resampling"
         self.eps_edit.setEnabled(enable)
         self.eps_hint.setVisible(mode == "nearest")
-        for cb in self.master_checkboxes.values():
-            cb.setEnabled(enable)
-
-        # Enable first checkbox by default if resampling is enabled
-        if enable and not any(cb.isChecked() for cb in self.master_checkboxes.values()):
-            first_topic = next(iter(self.master_checkboxes.values()))
-            first_topic.setChecked(True)
+        self._refresh_master_topics(enable_resampling=enable)
 
         # Default epsilon if nearest is selected
         if mode == "nearest" and not self.eps_edit.text().strip():
             self.eps_edit.setText("0.5")
+
+    def _refresh_master_topics(self, enable_resampling=False):
+        """
+        Populate the master topic combo with currently selected topics.
+
+        Args:
+            enable_resampling: Whether resampling is currently enabled.
+        """
+        current = self.master_combo.currentText()
+        self.master_combo.blockSignals(True)
+        self.master_combo.clear()
+        for t in self.selected_topics:
+            self.master_combo.addItem(t)
+        restore_idx = self.master_combo.findText(current)
+        if restore_idx >= 0:
+            self.master_combo.setCurrentIndex(restore_idx)
+        elif self.master_combo.count() > 0:
+            self.master_combo.setCurrentIndex(0)
+        self.master_combo.setEnabled(enable_resampling and self.master_combo.count() > 0)
+        self.master_combo.blockSignals(False)
 
     def get_export_config(self):
         """
@@ -335,17 +359,10 @@ class ExportOptions(QtWidgets.QWidget):
                 raise ValueError(
                     "Discard Eps is required for 'nearest' association strategy.")
 
-            master_topic = None
-            for topic, cb in self.master_checkboxes.items():
-                if cb.isChecked():
-                    master_topic = topic
-                    break
-
+            master_topic = self.master_combo.currentText().strip()
             if not master_topic:
-                raise ValueError(
-                    "One topic must be marked as Master when synchronization is enabled."
-                )
-            
+                raise ValueError("One topic must be selected as Master when synchronization is enabled.")
+
             global_config["resample_config"] = {
                 "master_topic": master_topic,
                 "association": assoc_mode,
@@ -358,7 +375,6 @@ class ExportOptions(QtWidgets.QWidget):
             abs_path = widgets["output_dir"]
             rel_path = widgets["subdir"]
             name = widgets["naming"]
-            master_checkbox = widgets["master_checkbox"]
             proc_chain_widget = widgets.get("processor_chain")
             topic_type = widgets["topic_type"]
 
@@ -402,6 +418,21 @@ class ExportOptions(QtWidgets.QWidget):
         """
         if global_config is not None and "cpu_percentage" in global_config:
             self.cpu_slider.setValue(global_config["cpu_percentage"])
+        if global_config and "resample_config" in global_config:
+            rcfg = global_config["resample_config"]
+            assoc = rcfg.get("association", "no resampling")
+            idx = self.assoc_combo.findText(assoc)
+            if idx >= 0:
+                self.assoc_combo.setCurrentIndex(idx)
+            if "discard_eps" in rcfg:
+                self.eps_edit.setText(str(rcfg["discard_eps"]))
+            # Master topic
+            master = rcfg.get("master_topic", "")
+            self._refresh_master_topics(enable_resampling=assoc != "no resampling")
+            if master:
+                midx = self.master_combo.findText(master)
+                if midx >= 0:
+                    self.master_combo.setCurrentIndex(midx)
 
         for topic, topic_cfg in config.items():
             widgets = self.config_widgets.get(topic)
@@ -422,7 +453,6 @@ class ExportOptions(QtWidgets.QWidget):
             abs_path_edit = widgets["output_dir"]
             rel_path_edit = widgets["subdir"]
             name_scheme_edit = widgets["naming"]
-            is_master_check = widgets["master_checkbox"]
             proc_chain_widget = widgets.get("processor_chain")
             topic_type = widgets["topic_type"]
 
@@ -442,18 +472,13 @@ class ExportOptions(QtWidgets.QWidget):
                 fmt_combo.setCurrentIndex(fmt_combo.count() - 1)
             # Set output path and subdirectory
             path = topic_cfg.get("path", "")
-            subdir = topic_cfg.get("subfolder", "").strip("/")
+            subdir = (topic_cfg.get("subfolder") or "%name").strip("/")
             abs_path_edit.setText(path)
-            rel_path_edit.setText(subdir)
+            rel_path_edit.setText(subdir or "%name")
             # Ensure the mode combo reflects the loaded configuration even if the format index did not change
             self._ensure_mode_selection(mode_combo, mode)
             # Set naming scheme
             name_scheme_edit.setText(topic_cfg.get("naming", ""))
-            # Set master topic checkbox
-            rcfg = topic_cfg.get("resample_config")
-            if rcfg and rcfg.get("is_master"):
-                is_master_check.setChecked(True)
-
             # Set processor and arguments
             if proc_chain_widget:
                 chain_cfg = topic_cfg.get("processors")
@@ -475,18 +500,6 @@ class ExportOptions(QtWidgets.QWidget):
                             args = {}
                         normalized_chain.append({"name": name, "args": args})
                 proc_chain_widget.set_chain(normalized_chain)
-
-        # Set global synchronization settings if present
-        for topic, topic_cfg in config.items():
-            rcfg = topic_cfg.get("resample_config")
-            if rcfg:
-                assoc = rcfg.get("association", "no resampling")
-                idx = self.assoc_combo.findText(assoc)
-                if idx >= 0:
-                    self.assoc_combo.setCurrentIndex(idx)
-                if "discard_eps" in rcfg:
-                    self.eps_edit.setText(str(rcfg["discard_eps"]))
-                break
 
     @staticmethod
     def _ensure_mode_selection(mode_combo: QtWidgets.QComboBox, target_mode):
@@ -536,4 +549,3 @@ class ExportOptions(QtWidgets.QWidget):
             self, "Select Directory")
         if directory:
             edit.setText(directory)
-

@@ -188,6 +188,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("ros2 unbag")
         self.resize(1200, 800)
+        self.setMinimumSize(1100, 700)
 
         self.bag_reader = None
         self.bag_path = None
@@ -285,6 +286,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.topic_list.setEnabled(False)
         self.topic_settings.setEnabled(False)
         self.global_settings.setEnabled(False)
+        self.btn_load_cfg.setEnabled(False)
         self.btn_save_cfg.setEnabled(False)
 
     def load_bag(self):
@@ -344,6 +346,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.topic_list.setEnabled(True)
         self.topic_settings.setEnabled(True)
         self.global_settings.setEnabled(True)
+        self.btn_load_cfg.setEnabled(True)
         self.btn_save_cfg.setEnabled(True)
         
         self.status_bar.showMessage(f"Loaded {self.bag_path.name}")
@@ -376,7 +379,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         if topic not in self.topics_config:
             self.topics_config[topic] = {
                 "path": str(self.bag_path.parent),
-                "subfolder": "",
+                "subfolder": "%name",
                 "naming": "%name",
                 "format": ""  # Will default in widget
             }
@@ -427,13 +430,15 @@ class UnbagApp(QtWidgets.QMainWindow):
         """
         # Count checked items in topic list
         selected_count = 0
-        for item in self.topic_list.topics.values():
+        selected_topics = []
+        for topic, item in self.topic_list.topics.items():
             cb = item.data(QtCore.Qt.UserRole)
             if cb and cb.isChecked():
                 selected_count += 1
+                selected_topics.append(topic)
         
         total_count = len(self.topic_list.topics)
-        self.global_settings.update_summary(selected_count, total_count)
+        self.global_settings.update_summary(selected_count, total_count, selected_topics)
 
     def get_export_config(self):
         """
@@ -466,19 +471,13 @@ class UnbagApp(QtWidgets.QMainWindow):
         
         # Validate global config (master topic)
         if "resample_config" in global_cfg:
-            # Check if a master is set in any of the SELECTED topics
-            master_found = False
-            for topic, item in self.topic_list.topics.items():
-                cb = item.data(QtCore.Qt.UserRole)
-                if cb and cb.isChecked():
-                    cfg = self.topics_config.get(topic, {})
-                    rcfg = cfg.get("resample_config", {})
-                    if rcfg.get("is_master"):
-                        master_found = True
-                        global_cfg["resample_config"]["master_topic"] = topic
-                        break
-            
-            if not master_found:
+            master_topic = global_cfg["resample_config"].get("master_topic")
+            # Build list of selected topics
+            selected_topics = [
+                topic for topic, item in self.topic_list.topics.items()
+                if item.data(QtCore.Qt.UserRole) and item.data(QtCore.Qt.UserRole).isChecked()
+            ]
+            if not master_topic or master_topic not in selected_topics:
                 raise ValueError("Resampling enabled but no Master Topic selected among exported topics.")
 
         for topic, item in self.topic_list.topics.items():
@@ -504,6 +503,8 @@ class UnbagApp(QtWidgets.QMainWindow):
                         # Also set default path/naming if empty
                         if "path" not in cfg: cfg["path"] = str(self.bag_path.parent)
                         if "naming" not in cfg: cfg["naming"] = "%name"
+                if "subfolder" not in cfg or not cfg.get("subfolder"):
+                    cfg["subfolder"] = "%name"
                 
                 final_config[topic] = cfg
 
@@ -652,6 +653,9 @@ class UnbagApp(QtWidgets.QMainWindow):
             self, "Load Config", str(Path.cwd()), "JSON (*.json)")
         if not file_path:
             return
+        if self.bag_reader is None:
+            QtWidgets.QMessageBox.warning(self, "Load Bag First", "Please load a bag file before loading a config.")
+            return
         
         try:
             with open(file_path, "r") as f:
@@ -661,6 +665,20 @@ class UnbagApp(QtWidgets.QMainWindow):
                 self.global_settings.set_config(config.pop("__global__"))
             
             self.topics_config = config
+
+            # Apply selection state based on loaded config
+            missing_topics = []
+            for topic, item in self.topic_list.topics.items():
+                cb = item.data(QtCore.Qt.UserRole)
+                if cb:
+                    # block signals to avoid redundant updates while we toggle many items
+                    cb.blockSignals(True)
+                    cb.setChecked(topic in self.topics_config)
+                    cb.blockSignals(False)
+            for topic in self.topics_config.keys():
+                if topic not in self.topic_list.topics and topic != "__global__":
+                    missing_topics.append(topic)
+            self.update_summary()
             
             # Refresh current topic if selected
             current = self.topic_settings.current_topic
@@ -670,6 +688,13 @@ class UnbagApp(QtWidgets.QMainWindow):
                 t_type = self.topic_settings.current_type
                 self.topic_settings.set_topic(current, t_type, self.topics_config[current])
             
+            if missing_topics:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Missing Topics",
+                    "The following topics from the config are not in the loaded bag:\n"
+                    + "\n".join(missing_topics)
+                )
             self.status_bar.showMessage(f"Loaded config from {file_path}")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Failed to load: {e}")

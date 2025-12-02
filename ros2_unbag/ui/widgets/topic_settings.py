@@ -73,7 +73,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         Build the topic settings UI with form layout for all configuration options.
         
         Creates a form with format selection, mode selection, path configuration,
-        naming scheme, master topic checkbox, and processor chain widget.
+        naming scheme, and processor chain widget.
         Initially hidden until a topic is selected.
 
         Args:
@@ -95,15 +95,30 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.form_layout = QtWidgets.QFormLayout(self.content_widget)
         
         # Format
+        format_row = QtWidgets.QWidget()
+        format_layout = QtWidgets.QHBoxLayout(format_row)
+        format_layout.setContentsMargins(0, 0, 0, 0)
+        format_layout.setSpacing(8)
         self.fmt_combo = QtWidgets.QComboBox()
         self.fmt_combo.currentTextChanged.connect(self._on_format_changed)
-        self.form_layout.addRow("Format", self.fmt_combo)
+        self.fmt_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        format_layout.addWidget(self.fmt_combo)
 
-        # Mode
+        # Mode (inline with format)
+        mode_container = QtWidgets.QWidget()
+        mode_layout = QtWidgets.QHBoxLayout(mode_container)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(4)
         self.mode_label = QtWidgets.QLabel("Mode")
         self.mode_combo = QtWidgets.QComboBox()
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        self.form_layout.addRow(self.mode_label, self.mode_combo)
+        self.mode_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        mode_layout.addWidget(self.mode_label)
+        mode_layout.addWidget(self.mode_combo)
+        format_layout.addWidget(mode_container)
+        format_layout.setStretch(0, 1)
+        format_layout.setStretch(1, 1)
+        self.form_layout.addRow("Format", format_row)
 
         # Output Directory
         self.path_edit = QtWidgets.QLineEdit()
@@ -122,10 +137,6 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.naming_edit = QtWidgets.QLineEdit()
         self.form_layout.addRow("Naming", self.naming_edit)
 
-        # Master Topic Checkbox
-        self.master_check = QtWidgets.QCheckBox("Set as Master for Resampling")
-        self.form_layout.addRow("Master Topic", self.master_check)
-
         # Processor Chain Placeholder
         self.processor_container = QtWidgets.QWidget()
         self.processor_layout = QtWidgets.QVBoxLayout(self.processor_container)
@@ -137,7 +148,9 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         # Help Text
         help_text = QtWidgets.QLabel(
             "Placeholders:\n"
-            "%name (topic), %index (msg idx)\n"
+            "%name (topic name)\n"
+            "%index (msg idx)\n"
+            "%timestamp (msg timestamp in nanoseconds)\n"
             "%Y-%m-%d_%H-%M-%S (timestamp)"
         )
         help_text.setStyleSheet("color: gray; font-style: italic; margin-top: 20px;")
@@ -148,9 +161,34 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.path_edit.editingFinished.connect(self._emit_change)
         self.subdir_edit.editingFinished.connect(self._emit_change)
         self.naming_edit.editingFinished.connect(self._emit_change)
-        self.master_check.toggled.connect(self._emit_change)
         
         self.content_widget.setVisible(False)
+
+    def _get_active_mode(self):
+        """
+        Return the currently selected or forced export mode.
+        """
+        mode = self.mode_combo.currentData()
+        if mode is None:
+            mode = self.mode_combo.property("forced_mode")
+        return mode
+
+    def _sync_naming_with_mode(self, initial=False):
+        """
+        Adjust the naming field to match the active mode when it is still at a default value.
+
+        Args:
+            initial: If True, only override when the naming text is empty or a default value.
+        """
+        mode = self._get_active_mode()
+        current = self.naming_edit.text().strip()
+
+        if mode == ExportMode.SINGLE_FILE:
+            if not initial or current in ("", "%name_%index"):
+                self.naming_edit.setText("%name")
+        else:
+            if not initial or current in ("", "%name"):
+                self.naming_edit.setText("%name_%index")
 
     def set_topic(self, topic, topic_type, config):
         """
@@ -205,12 +243,11 @@ class TopicSettingsWidget(QtWidgets.QWidget):
 
         # 3. Set other fields
         self.path_edit.setText(config.get("path", str(self.default_folder)))
-        self.subdir_edit.setText(config.get("subfolder", "").strip("/"))
+        subdir = (config.get("subfolder") or "%name").strip("/")
+        self.subdir_edit.setText(subdir or "%name")
         self.naming_edit.setText(config.get("naming", "%name"))
+        self._sync_naming_with_mode(initial=True)
         
-        rcfg = config.get("resample_config", {})
-        self.master_check.setChecked(rcfg.get("is_master", False))
-
         # 4. Processor Chain
         # Clear old
         while self.processor_layout.count():
@@ -272,8 +309,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
             "format": fmt,
             "path": self.path_edit.text(),
             "subfolder": self.subdir_edit.text(),
-            "naming": self.naming_edit.text(),
-            "resample_config": {"is_master": self.master_check.isChecked()}
+            "naming": self.naming_edit.text()
         }
         
         if self.chain_widget:
@@ -389,6 +425,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.mode_combo.setProperty("available_modes", tuple(ordered_modes))
         self.mode_combo.setProperty("pending_mode", None)
         self.mode_combo.blockSignals(False)
+        self._sync_naming_with_mode(initial=True)
 
     def _emit_change(self):
         """

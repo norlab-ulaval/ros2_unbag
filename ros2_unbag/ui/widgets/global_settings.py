@@ -52,6 +52,7 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
             None
         """
         super().__init__(parent)
+        self.selected_topics = []
         self.init_ui()
 
     def init_ui(self):
@@ -75,12 +76,33 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         self.cpu_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.cpu_slider.setRange(0, 100)
         self.cpu_slider.setValue(80)
-        self.cpu_spin = QtWidgets.QSpinBox()
-        self.cpu_spin.setRange(0, 100)
-        self.cpu_spin.setValue(80)
+        self.cpu_slider.setSingleStep(10)
+        self.cpu_slider.setPageStep(10)
+        self.cpu_slider.setTickInterval(10)
+        self.cpu_slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
+        self.cpu_spin = QtWidgets.QDoubleSpinBox()
+        self.cpu_spin.setRange(0.0, 100.0)
+        self.cpu_spin.setSingleStep(1.0)
+        self.cpu_spin.setDecimals(1)
+        self.cpu_spin.setValue(80.0)
         
-        self.cpu_slider.valueChanged.connect(self.cpu_spin.setValue)
-        self.cpu_spin.valueChanged.connect(self.cpu_slider.setValue)
+        def _slider_to_spin(val):
+            # snap slider to 10% steps, keep spinbox in sync with snapped value
+            snapped = round(val / 10) * 10
+            if snapped != val:
+                self.cpu_slider.blockSignals(True)
+                self.cpu_slider.setValue(snapped)
+                self.cpu_slider.blockSignals(False)
+            self.cpu_spin.setValue(float(snapped))
+
+        def _spin_to_slider(val):
+            # reflect manual input on the slider without snapping the spin value
+            self.cpu_slider.blockSignals(True)
+            self.cpu_slider.setValue(int(round(val)))
+            self.cpu_slider.blockSignals(False)
+
+        self.cpu_slider.valueChanged.connect(_slider_to_spin)
+        self.cpu_spin.valueChanged.connect(_spin_to_slider)
         
         cpu_layout = QtWidgets.QHBoxLayout()
         cpu_layout.addWidget(self.cpu_slider)
@@ -97,6 +119,10 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         self.eps_edit.setPlaceholderText("e.g. 0.5")
         self.eps_edit.setEnabled(False)
         form_layout.addRow("Discard Eps (s)", self.eps_edit)
+
+        self.master_combo = QtWidgets.QComboBox()
+        self.master_combo.setEnabled(False)
+        form_layout.addRow("Master Topic", self.master_combo)
 
         layout.addWidget(gb_settings)
 
@@ -132,10 +158,28 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         """
         enable = text != "no resampling"
         self.eps_edit.setEnabled(enable)
+        self._refresh_master_combo(resampling_enabled=enable)
         if text == "nearest" and not self.eps_edit.text():
             self.eps_edit.setText("0.5")
 
-    def update_summary(self, selected_count, total_count):
+    def _refresh_master_combo(self, resampling_enabled=False):
+        """
+        Populate the master topic dropdown with currently selected topics.
+        """
+        current = self.master_combo.currentText()
+        self.master_combo.blockSignals(True)
+        self.master_combo.clear()
+        for topic in self.selected_topics:
+            self.master_combo.addItem(topic)
+        restore_idx = self.master_combo.findText(current)
+        if restore_idx >= 0:
+            self.master_combo.setCurrentIndex(restore_idx)
+        elif self.master_combo.count() > 0:
+            self.master_combo.setCurrentIndex(0)
+        self.master_combo.setEnabled(resampling_enabled and self.master_combo.count() > 0)
+        self.master_combo.blockSignals(False)
+
+    def update_summary(self, selected_count, total_count, selected_topics=None):
         """
         Update the summary display with current topic selection counts.
         
@@ -149,6 +193,10 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         Returns:
             None
         """
+        if selected_topics is not None:
+            self.selected_topics = selected_topics
+            self._refresh_master_combo(resampling_enabled=self.assoc_combo.currentText() != "no resampling")
+
         self.summary_label.setText(
             f"Selected Topics: {selected_count}\n"
             f"Total Topics: {total_count}"
@@ -169,7 +217,7 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
                  'resample_config' (if resampling is enabled).
         """
         cfg = {
-            "cpu_percentage": self.cpu_slider.value()
+            "cpu_percentage": float(self.cpu_spin.value())
         }
         assoc = self.assoc_combo.currentText()
         if assoc != "no resampling":
@@ -178,9 +226,11 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
             except ValueError:
                 eps = None
             
+            master_topic = self.master_combo.currentText().strip()
             cfg["resample_config"] = {
                 "association": assoc,
-                "discard_eps": eps
+                "discard_eps": eps,
+                "master_topic": master_topic if master_topic else None
             }
         return cfg
     
@@ -208,6 +258,17 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
                 self.assoc_combo.setCurrentIndex(idx)
             if "discard_eps" in rcfg:
                 self.eps_edit.setText(str(rcfg["discard_eps"]))
+            if "master_topic" in rcfg and rcfg["master_topic"]:
+                # refresh master list in case set_config is called before update_summary
+                self._refresh_master_combo(resampling_enabled=assoc != "no resampling")
+                midx = self.master_combo.findText(rcfg["master_topic"])
+                if midx >= 0:
+                    self.master_combo.setCurrentIndex(midx)
         else:
             self.assoc_combo.setCurrentIndex(0)
-
+        if "cpu_percentage" in config:
+            # ensure slider reflects the new spin value without snapping the spin itself
+            self.cpu_spin.setValue(float(config["cpu_percentage"]))
+            self.cpu_slider.blockSignals(True)
+            self.cpu_slider.setValue(int(round(config["cpu_percentage"])))
+            self.cpu_slider.blockSignals(False)
