@@ -211,23 +211,61 @@ class UnbagApp(QtWidgets.QMainWindow):
         # Central Widget
         central_widget = QtWidgets.QWidget()
         self.setCentralWidget(central_widget)
-        self.main_layout = QtWidgets.QHBoxLayout(central_widget)
+        root_layout = QtWidgets.QVBoxLayout(central_widget)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(8)
+
+        # Top Bar
+        top_bar = QtWidgets.QWidget()
+        top_bar.setObjectName("topBar")
+        top_bar.setStyleSheet(
+            "#topBar { background-color: #f4f6fb; border-bottom: 1px solid #d7dce4; }"
+            "#topBar QLabel#title { color: #0f172a; font-size: 20px; font-weight: bold; font-family: 'Ubuntu', 'Ubuntu Bold', 'Ubuntu Medium', monospace; }"
+            "QPushButton#headerLoadButton { background-color: #2563eb; color: #ffffff; border-radius: 18px; padding: 10px 18px; font-weight: 600; font-size: 14px; }"
+            "QPushButton#headerLoadButton:hover { background-color: #1d4ed8; }"
+            "QPushButton#headerLoadButton:pressed { background-color: #1e40af; }"
+        )
+        top_layout = QtWidgets.QHBoxLayout(top_bar)
+        top_layout.setContentsMargins(12, 0, 12, 0)
+        icon_label = QtWidgets.QLabel()
+        icon_path = Path(__file__).resolve().parent / "assets/badge.svg"
+        if icon_path.exists():
+            icon_pixmap = QtGui.QPixmap(str(icon_path)).scaled(50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            icon_label.setPixmap(icon_pixmap)
+        top_layout.addWidget(icon_label)
+        title_label = QtWidgets.QLabel("$ ros2 unbag")
+        title_label.setObjectName("title")
+        top_layout.addWidget(title_label)
+        top_layout.addStretch()
+        self.btn_load_bag = QtWidgets.QPushButton("Load Bag")
+        self.btn_load_bag.setObjectName("headerLoadButton")
+        self.btn_load_bag.clicked.connect(self.load_bag)
+        top_layout.addWidget(self.btn_load_bag)
+        root_layout.addWidget(top_bar)
+
+        # Columns container
+        columns_container = QtWidgets.QWidget()
+        self.main_layout = QtWidgets.QHBoxLayout(columns_container)
         self.main_layout.setContentsMargins(10, 10, 10, 10)
         self.main_layout.setSpacing(10)
+        root_layout.addWidget(columns_container)
 
         # 1. Left Column: Bag & Topics
         left_container = QtWidgets.QWidget()
+        left_container.setObjectName("leftContainer")
         left_layout = QtWidgets.QVBoxLayout(left_container)
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setContentsMargins(8, 8, 8, 8)
+        left_layout.setSpacing(10)
+        left_container.setStyleSheet(
+            "#leftContainer { background-color: #f7f9fc; border: 1px solid #d7dce4; border-radius: 6px; }"
+            "#leftContainer QGroupBox { font-weight: bold; }"
+        )
         
         # Bag Loading Area
         bag_group = QtWidgets.QGroupBox("Bag File")
         bag_layout = QtWidgets.QVBoxLayout(bag_group)
-        self.btn_load_bag = QtWidgets.QPushButton("Load Bag")
-        self.btn_load_bag.clicked.connect(self.load_bag)
         self.lbl_bag_name = QtWidgets.QLabel("No bag loaded")
         self.lbl_bag_name.setWordWrap(True)
-        bag_layout.addWidget(self.btn_load_bag)
         bag_layout.addWidget(self.lbl_bag_name)
         left_layout.addWidget(bag_group)
 
@@ -247,8 +285,14 @@ class UnbagApp(QtWidgets.QMainWindow):
         cfg_layout.addWidget(self.btn_save_cfg)
         left_layout.addLayout(cfg_layout)
 
-        left_container.setFixedWidth(300)
+        left_container.setFixedWidth(340)
         self.main_layout.addWidget(left_container)
+        sep1 = QtWidgets.QFrame()
+        sep1.setFrameShape(QtWidgets.QFrame.VLine)
+        sep1.setFrameShadow(QtWidgets.QFrame.Sunken)
+        sep1.setFixedWidth(1)
+        sep1.setStyleSheet("background-color: #d7dce4;")
+        self.main_layout.addWidget(sep1)
 
         # 2. Middle Column: Settings
         self.topic_settings = TopicSettingsWidget(Path.cwd())
@@ -259,13 +303,32 @@ class UnbagApp(QtWidgets.QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.topic_settings)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setStyleSheet(
+            "QScrollArea { border: 1px solid #d7dce4; border-radius: 6px; background: #ffffff; }"
+            "QScrollArea > QWidget > QWidget { background: #ffffff; }"
+        )
         self.main_layout.addWidget(scroll, stretch=1)
+        sep2 = QtWidgets.QFrame()
+        sep2.setFrameShape(QtWidgets.QFrame.VLine)
+        sep2.setFrameShadow(QtWidgets.QFrame.Sunken)
+        sep2.setFixedWidth(1)
+        sep2.setStyleSheet("background-color: #d7dce4;")
+        self.main_layout.addWidget(sep2)
 
         # 3. Right Column: Global & Summary
         self.global_settings = GlobalSettingsWidget()
         self.global_settings.export_clicked.connect(self.export_data)
         self.global_settings.setFixedWidth(300)
-        self.main_layout.addWidget(self.global_settings)
+        global_wrapper = QtWidgets.QWidget()
+        global_wrapper.setObjectName("globalContainer")
+        global_wrapper.setStyleSheet(
+            "#globalContainer { background-color: #f7f9fc; border: 1px solid #d7dce4; border-radius: 6px; }"
+            "#globalContainer QGroupBox { font-weight: bold; }"
+        )
+        global_layout = QtWidgets.QVBoxLayout(global_wrapper)
+        global_layout.setContentsMargins(0, 0, 0, 0)
+        global_layout.addWidget(self.global_settings)
+        self.main_layout.addWidget(global_wrapper)
 
         # Status Bar
         self.status_bar = QtWidgets.QStatusBar()
