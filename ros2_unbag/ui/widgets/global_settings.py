@@ -20,7 +20,11 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from pathlib import Path
+
 from PySide6 import QtCore, QtWidgets
+
+from ros2_unbag.ui.styles import EXPORT_BUTTON_STYLE
 
 __all__ = ["GlobalSettingsWidget"]
 
@@ -40,6 +44,7 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
     """
     
     export_clicked = QtCore.Signal()
+    base_dir_changed = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         """
@@ -53,6 +58,7 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         """
         super().__init__(parent)
         self.selected_topics = []
+        self.base_dir = Path.cwd()
         self.init_ui()
 
     def init_ui(self):
@@ -126,6 +132,27 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
 
         layout.addWidget(gb_settings)
 
+        # Base Directory Group
+        gb_base = QtWidgets.QGroupBox("Base Directory")
+        base_layout = QtWidgets.QVBoxLayout(gb_base)
+        base_layout.setSpacing(6)
+        base_layout.setContentsMargins(10, 10, 10, 10)
+        self.base_dir_label = QtWidgets.QLabel(str(self.base_dir))
+        self.base_dir_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        self.base_dir_label.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self.btn_base_dir = QtWidgets.QPushButton("Change")
+        self.btn_base_dir.clicked.connect(self._choose_base_dir)
+        row = QtWidgets.QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.base_dir_label)
+        row.addWidget(self.btn_base_dir)
+        base_layout.addLayout(row)
+        desc = QtWidgets.QLabel("Changes the base directory for all topic exports at once.")
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #475569;")
+        base_layout.addWidget(desc)
+        layout.addWidget(gb_base)
+
         # Summary Group
         gb_summary = QtWidgets.QGroupBox("Summary")
         self.summary_layout = QtWidgets.QVBoxLayout(gb_summary)
@@ -136,9 +163,9 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         layout.addStretch()
 
         # Export Button
-        self.btn_export = QtWidgets.QPushButton("Export Selected Topics")
-        self.btn_export.setMinimumHeight(50)
-        self.btn_export.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self.btn_export = QtWidgets.QPushButton("Unbag")
+        self.btn_export.setMinimumHeight(56)
+        self.btn_export.setStyleSheet(EXPORT_BUTTON_STYLE)
         self.btn_export.clicked.connect(self.export_clicked)
         self.btn_export.setEnabled(False)
         layout.addWidget(self.btn_export)
@@ -202,6 +229,24 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
             f"Total Topics: {total_count}"
         )
         self.btn_export.setEnabled(selected_count > 0)
+        if selected_count > 0:
+            self.btn_export.setToolTip("")
+        else:
+            self.btn_export.setToolTip("Select at least one topic to unbag.")
+
+    def _choose_base_dir(self):
+        start_dir = str(self.base_dir) if self.base_dir else str(Path.cwd())
+        new_dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Base Directory", start_dir)
+        if new_dir:
+            self.set_base_dir(new_dir)
+            self.base_dir_changed.emit(new_dir)
+
+    def set_base_dir(self, path: str | Path):
+        self.base_dir = Path(path)
+        self.base_dir_label.setText(str(self.base_dir))
+
+    def set_base_dir_enabled(self, enabled: bool):
+        self.btn_base_dir.setEnabled(enabled)
 
     def get_config(self):
         """

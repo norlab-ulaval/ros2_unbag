@@ -31,6 +31,13 @@ from ros2_unbag.core.exporter import Exporter
 from ros2_unbag.ui.widgets.topic_list import TopicListWidget
 from ros2_unbag.ui.widgets.topic_settings import TopicSettingsWidget
 from ros2_unbag.ui.widgets.global_settings import GlobalSettingsWidget
+from ros2_unbag.ui.styles import (
+    TOP_BAR_STYLE,
+    LEFT_CONTAINER_STYLE,
+    SCROLL_STYLE,
+    GLOBAL_CONTAINER_STYLE,
+    LEFT_HEADER_STYLE,
+)
 
 __all__ = ["UnbagApp"]
 
@@ -187,13 +194,20 @@ class UnbagApp(QtWidgets.QMainWindow):
         """
         super().__init__()
         self.setWindowTitle("ros2 unbag")
-        self.resize(1200, 800)
-        self.setMinimumSize(1100, 700)
+        # Start at ~80% of available screen size
+        screen = QtGui.QGuiApplication.primaryScreen()
+        if screen:
+            available = screen.availableGeometry()
+            self.resize(int(available.width() * 0.8), int(available.height() * 0.8))
+        else:
+            self.resize(1200, 800)
+        self.setMinimumSize(900, 600)
 
         self.bag_reader = None
         self.bag_path = None
         self.topics_config = {}  # topic -> config dict
         self.current_exporter = None
+        self.default_base_dir = Path.cwd()
 
         self.init_ui()
         self.show_init_screen()
@@ -219,13 +233,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         top_bar = QtWidgets.QWidget()
         top_bar.setObjectName("topBar")
         top_bar.setFixedHeight(60)
-        top_bar.setStyleSheet(
-            "#topBar { background-color: #f4f6fb; border-bottom: 1px solid #d7dce4; }"
-            "#topBar QLabel#title { color: #0f172a; font-size: 20px; font-weight: bold; font-family: 'Ubuntu', 'Ubuntu Bold', 'Ubuntu Medium', monospace; }"
-            "QPushButton#headerLoadButton { background-color: #2563eb; color: #ffffff; border-radius: 18px; padding: 10px 18px; font-weight: 600; font-size: 14px; }"
-            "QPushButton#headerLoadButton:hover { background-color: #1d4ed8; }"
-            "QPushButton#headerLoadButton:pressed { background-color: #1e40af; }"
-        )
+        top_bar.setStyleSheet(TOP_BAR_STYLE)
         top_layout = QtWidgets.QHBoxLayout(top_bar)
         top_layout.setContentsMargins(12, 0, 12, 0)
         top_layout.setSpacing(10)
@@ -235,7 +243,7 @@ class UnbagApp(QtWidgets.QMainWindow):
             icon_pixmap = QtGui.QPixmap(str(icon_path)).scaled(50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             icon_label.setPixmap(icon_pixmap)
         top_layout.addWidget(icon_label)
-        title_label = QtWidgets.QLabel("$ ros2 unbag")
+        title_label = QtWidgets.QLabel("ros2 unbag")
         title_label.setObjectName("title")
         top_layout.addWidget(title_label)
         top_layout.addStretch()
@@ -262,11 +270,11 @@ class UnbagApp(QtWidgets.QMainWindow):
         left_layout = QtWidgets.QVBoxLayout(left_container)
         left_layout.setContentsMargins(8, 8, 8, 8)
         left_layout.setSpacing(10)
-        left_container.setStyleSheet(
-            "#leftContainer { background-color: #f7f9fc; border: 1px solid #d7dce4; border-radius: 6px; }"
-            "#leftContainer QGroupBox { font-weight: bold; }"
-        )
-        
+        left_container.setStyleSheet(LEFT_CONTAINER_STYLE)
+        left_header = QtWidgets.QLabel("Bag")
+        left_header.setStyleSheet(LEFT_HEADER_STYLE)
+        left_layout.addWidget(left_header)
+
         # Bag Loading Area
         bag_group = QtWidgets.QGroupBox("Bag File")
         bag_layout = QtWidgets.QVBoxLayout(bag_group)
@@ -296,29 +304,25 @@ class UnbagApp(QtWidgets.QMainWindow):
         # 2. Middle Column: Settings
         self.topic_settings = TopicSettingsWidget(Path.cwd())
         self.topic_settings.settings_changed.connect(self.on_settings_changed)
+        self.topic_settings.export_toggle_requested.connect(self.on_badge_toggle)
         
         # Wrap in scroll area
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.topic_settings)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        scroll.setStyleSheet(
-            "QScrollArea { border: 1px solid #d7dce4; border-radius: 6px; background: #ffffff; }"
-            "QScrollArea > QWidget > QWidget { background: #ffffff; }"
-        )
+        scroll.setStyleSheet(SCROLL_STYLE)
         splitter.addWidget(scroll)
 
         # 3. Right Column: Global & Summary
         self.global_settings = GlobalSettingsWidget()
         self.global_settings.export_clicked.connect(self.export_data)
+        self.global_settings.base_dir_changed.connect(self.on_base_dir_changed)
         self.global_settings.setFixedWidth(300)
         global_wrapper = QtWidgets.QWidget()
         global_wrapper.setObjectName("globalContainer")
         global_wrapper.setFixedWidth(300)
-        global_wrapper.setStyleSheet(
-            "#globalContainer { background-color: #f7f9fc; border: 1px solid #d7dce4; border-radius: 6px; }"
-            "#globalContainer QGroupBox { font-weight: bold; }"
-        )
+        global_wrapper.setStyleSheet(GLOBAL_CONTAINER_STYLE)
         global_layout = QtWidgets.QVBoxLayout(global_wrapper)
         global_layout.setContentsMargins(0, 0, 0, 0)
         global_layout.addWidget(self.global_settings)
@@ -349,10 +353,12 @@ class UnbagApp(QtWidgets.QMainWindow):
         """
         # Disable controls until bag is loaded
         self.topic_list.setEnabled(False)
-        self.topic_settings.setEnabled(False)
+        # Keep topic settings active so the placeholder/image stays colored
+        self.topic_settings.setEnabled(True)
         self.global_settings.setEnabled(False)
         self.btn_load_cfg.setEnabled(False)
         self.btn_save_cfg.setEnabled(False)
+        self.global_settings.set_base_dir_enabled(False)
 
     def load_bag(self):
         """
@@ -371,6 +377,8 @@ class UnbagApp(QtWidgets.QMainWindow):
 
         self.bag_path = Path(bag_path)
         self.lbl_bag_name.setText(self.bag_path.name)
+        self.default_base_dir = self.bag_path.parent
+        self.global_settings.set_base_dir(self.default_base_dir)
         
         # Reset state
         self.topics_config = {}
@@ -385,6 +393,26 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.worker.finished.connect(self.on_bag_loaded)
         self.worker.error.connect(self.handle_bag_error)
         self.worker.start()
+
+    def on_base_dir_changed(self, new_dir):
+        """
+        Update base directory for all topics when changed from the global settings.
+        """
+        if not new_dir:
+            return
+        self.default_base_dir = Path(new_dir)
+        self.topic_settings.default_folder = self.default_base_dir
+
+        # Update existing topic configs
+        for topic, cfg in self.topics_config.items():
+            if isinstance(cfg, dict):
+                cfg["path"] = str(self.default_base_dir)
+
+        # Update current topic UI if present
+        if self.topic_settings.current_topic:
+            self.topic_settings.path_edit.setText(str(self.default_base_dir))
+
+        self.status_bar.showMessage(f"Base directory set to {new_dir}")
 
     def on_bag_loaded(self, reader):
         """
@@ -413,6 +441,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.global_settings.setEnabled(True)
         self.btn_load_cfg.setEnabled(True)
         self.btn_save_cfg.setEnabled(True)
+        self.global_settings.set_base_dir_enabled(True)
         
         self.status_bar.showMessage(f"Loaded {self.bag_path.name}")
         self.update_summary()
@@ -469,6 +498,10 @@ class UnbagApp(QtWidgets.QMainWindow):
         if not topic_type:
             return
 
+        # Persist current topic settings before switching
+        if self.topic_settings.current_topic and self.topic_settings.current_topic in self.topics_config:
+            self.topics_config[self.topic_settings.current_topic].update(self.topic_settings.get_config())
+
         # Get or create config
         if topic not in self.topics_config:
             self.topics_config[topic] = {
@@ -479,6 +512,7 @@ class UnbagApp(QtWidgets.QMainWindow):
             }
         
         self.topic_settings.set_topic(topic, topic_type, self.topics_config[topic])
+        self.topic_settings.set_export_state(self.topic_list.is_checked(topic))
 
     def on_settings_changed(self, topic, new_config):
         """
@@ -511,6 +545,17 @@ class UnbagApp(QtWidgets.QMainWindow):
         # We could also auto-select the topic for editing if checked?
         # For now, keep selection and checking separate.
         self.update_summary()
+        if self.topic_settings.current_topic == topic:
+            self.topic_settings.set_export_state(is_checked)
+
+    def on_badge_toggle(self, topic):
+        """
+        Toggle topic export selection when badge is clicked.
+        """
+        if topic not in self.topic_list.topics:
+            return
+        new_state = not self.topic_list.is_checked(topic)
+        self.topic_list.set_checked(topic, new_state)
 
     def update_summary(self):
         """
@@ -769,6 +814,7 @@ class UnbagApp(QtWidgets.QMainWindow):
                 # We need type though.
                 t_type = self.topic_settings.current_type
                 self.topic_settings.set_topic(current, t_type, self.topics_config[current])
+                self.topic_settings.set_export_state(self.topic_list.is_checked(current))
             
             if missing_topics:
                 QtWidgets.QMessageBox.warning(

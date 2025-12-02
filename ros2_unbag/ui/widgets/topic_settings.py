@@ -20,7 +20,16 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtWidgets, QtGui
+from pathlib import Path
+
+from ros2_unbag.ui.styles import (
+    TS_HEADER_STYLE,
+    TS_TOPIC_STYLE,
+    EXPORT_BADGE_SELECTED_STYLE,
+    EXPORT_BADGE_UNSELECTED_STYLE,
+    HELP_TEXT_STYLE,
+)
 from ros2_unbag.core.processors import Processor
 from ros2_unbag.core.routines import ExportRoutine, ExportMode
 from .processor_chain import ProcessorChainWidget
@@ -29,6 +38,7 @@ __all__ = ["TopicSettingsWidget"]
 
 
 class TopicSettingsWidget(QtWidgets.QWidget):
+    export_toggle_requested = QtCore.Signal(str)
     """
     Widget for configuring export settings for a single ROS2 topic.
     
@@ -85,10 +95,36 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.setAlignment(QtCore.Qt.AlignTop)
 
-        # Header
-        self.header_label = QtWidgets.QLabel("No Topic Selected")
-        self.header_label.setStyleSheet("font-size: 16px; font-weight: bold; margin-bottom: 10px;")
-        self.layout.addWidget(self.header_label)
+        # Header row with title/topic and export badge on the right
+        header_row = QtWidgets.QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(8)
+
+        header_block = QtWidgets.QVBoxLayout()
+        header_block.setContentsMargins(0, 0, 0, 0)
+        header_block.setSpacing(2)
+
+        self.header_label = QtWidgets.QLabel("Export Settings")
+        self.header_label.setStyleSheet(TS_HEADER_STYLE)
+        header_block.addWidget(self.header_label)
+
+        self.topic_label = QtWidgets.QLabel("No Topic Selected")
+        self.topic_label.setStyleSheet(TS_TOPIC_STYLE)
+        header_block.addWidget(self.topic_label)
+
+        header_row.addLayout(header_block)
+        header_row.addStretch()
+
+        self.export_state = QtWidgets.QPushButton("•")
+        self.export_state.setFlat(True)
+        self.export_state.setCursor(QtCore.Qt.PointingHandCursor)
+        self.export_state.setStyleSheet(EXPORT_BADGE_UNSELECTED_STYLE)
+        self.export_state.setFixedSize(40, 40)
+        self.export_state.setVisible(False)
+        self.export_state.clicked.connect(self._on_export_badge_clicked)
+        header_row.addWidget(self.export_state)
+
+        self.layout.addLayout(header_row)
 
         # Content Container (hidden when no topic selected)
         self.content_widget = QtWidgets.QWidget()
@@ -145,6 +181,18 @@ class TopicSettingsWidget(QtWidgets.QWidget):
 
         self.layout.addWidget(self.content_widget)
         
+        # Placeholder image when no topic is selected
+        self.placeholder = QtWidgets.QLabel()
+        self.placeholder.setAlignment(QtCore.Qt.AlignCenter)
+        self.placeholder.setVisible(True)
+        self.placeholder.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        img_path = Path(__file__).resolve().parent.parent / "assets" / "title.png"
+        self._placeholder_pixmap = QtGui.QPixmap(str(img_path)) if img_path.exists() else None
+        if self._placeholder_pixmap:
+            self._update_placeholder_pixmap()
+        self.layout.addWidget(self.placeholder)
+        self.layout.setAlignment(self.placeholder, QtCore.Qt.AlignCenter)
+        
         # Help Text (hidden until a topic is selected)
         self.layout.addStretch()
         self.help_text = QtWidgets.QLabel(
@@ -154,7 +202,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
             "  %timestamp (msg timestamp in nanoseconds)\n"
             "  %Y-%m-%d_%H-%M-%S (timestamp)"
         )
-        self.help_text.setStyleSheet("color: gray; font-style: italic; margin-top: 20px;")
+        self.help_text.setStyleSheet(HELP_TEXT_STYLE)
         self.help_text.setVisible(False)
         self.layout.addWidget(self.help_text)
 
@@ -164,6 +212,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.naming_edit.editingFinished.connect(self._emit_change)
         
         self.content_widget.setVisible(False)
+        self.placeholder.setVisible(True)
 
     def _get_active_mode(self):
         """
@@ -211,9 +260,12 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.current_topic = topic
         self.current_type = topic_type
         
-        self.header_label.setText(f"Export Settings:\n{topic}")
+        self.topic_label.setText(topic)
         self.content_widget.setVisible(True)
         self.help_text.setVisible(True)
+        self.export_state.setVisible(True)
+        self.placeholder.setVisible(False)
+        # Export state will be set by caller based on selection
 
         # Block signals to prevent auto-saving during load
         self.blockSignals(True)
@@ -318,6 +370,25 @@ class TopicSettingsWidget(QtWidgets.QWidget):
             cfg["processors"] = self.chain_widget.get_chain()
             
         return cfg
+
+    def set_export_state(self, checked: bool):
+        """
+        Update the export state badge to reflect whether the topic is selected for export.
+        """
+        if checked:
+            self.export_state.setText("✓")
+            self.export_state.setStyleSheet(EXPORT_BADGE_SELECTED_STYLE)
+        else:
+            self.export_state.setText("•")
+            self.export_state.setStyleSheet(EXPORT_BADGE_UNSELECTED_STYLE)
+
+    def _on_export_badge_clicked(self):
+        """
+        Toggle export state for the current topic via badge click.
+        """
+        if not self.current_topic:
+            return
+        self.export_toggle_requested.emit(self.current_topic)
 
     def _browse_path(self):
         """
@@ -428,6 +499,21 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.mode_combo.setProperty("pending_mode", None)
         self.mode_combo.blockSignals(False)
         self._sync_naming_with_mode(initial=True)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_placeholder_pixmap()
+
+    def _update_placeholder_pixmap(self):
+        """
+        Scale placeholder image to fit the available width while centering.
+        """
+        if not self._placeholder_pixmap or not self.placeholder.isVisible():
+            return
+        margins = self.layout.contentsMargins()
+        available_width = max(200, self.width() - (margins.left() + margins.right()))
+        scaled = self._placeholder_pixmap.scaledToWidth(available_width, QtCore.Qt.SmoothTransformation)
+        self.placeholder.setPixmap(scaled)
 
     def _emit_change(self):
         """

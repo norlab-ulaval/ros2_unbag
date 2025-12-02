@@ -22,6 +22,8 @@
 
 from PySide6 import QtCore, QtWidgets, QtGui
 
+from ros2_unbag.ui.styles import TOPIC_LIST_STYLE, GRAY_SOFT, CHECKED_BG
+
 __all__ = ["TopicListWidget"]
 
 
@@ -71,32 +73,26 @@ class TopicListWidget(QtWidgets.QWidget):
         """
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-
-        # Header
-        header_label = QtWidgets.QLabel("Topics")
-        header_font = QtGui.QFont()
-        header_font.setBold(True)
-        header_font.setPointSize(12)
-        header_label.setFont(header_font)
-        layout.addWidget(header_label)
+        layout.setSpacing(8)
 
         # Search/Filter (Placeholder for now, or simple implementation)
         self.filter_edit = QtWidgets.QLineEdit()
         self.filter_edit.setPlaceholderText("Filter topics...")
         self.filter_edit.textChanged.connect(self.filter_topics)
+        self.filter_edit.setMinimumHeight(32)
         layout.addWidget(self.filter_edit)
 
         # List
         self.tree_widget = QtWidgets.QTreeWidget()
         self.tree_widget.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
-        self.tree_widget.setHeaderLabels(["Topic", "Message Count"])
+        self.tree_widget.setHeaderLabels(["Topic", "# Msgs"])
         self.tree_widget.setColumnCount(2)
         header = self.tree_widget.header()
         header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
         header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
         header.setStretchLastSection(False)
         self.tree_widget.setRootIsDecorated(False)
-        self.tree_widget.setStyleSheet("QTreeWidget::item { height: 28px; }")
+        self.tree_widget.setStyleSheet(TOPIC_LIST_STYLE)
         self.tree_widget.itemClicked.connect(self.on_item_clicked)
         self.tree_widget.itemChanged.connect(self.on_item_changed)
         layout.addWidget(self.tree_widget)
@@ -137,7 +133,7 @@ class TopicListWidget(QtWidgets.QWidget):
             parent.setFirstColumnSpanned(True)
             parent.setFlags(QtCore.Qt.ItemIsEnabled)
             parent.setFont(0, header_font)
-            bg = QtGui.QColor("#f2f2f2")
+            bg = QtGui.QColor(GRAY_SOFT)
             parent.setBackground(0, bg)
             parent.setBackground(1, bg)
             self.tree_widget.addTopLevelItem(parent)
@@ -185,6 +181,7 @@ class TopicListWidget(QtWidgets.QWidget):
             return
         topic = item.data(0, QtCore.Qt.UserRole)
         if topic:
+            self._apply_checked_style(item, item.checkState(0) == QtCore.Qt.Checked)
             self.topic_toggled.emit(topic, item.checkState(0) == QtCore.Qt.Checked)
 
     def filter_topics(self, text):
@@ -252,5 +249,14 @@ class TopicListWidget(QtWidgets.QWidget):
         if block_signals:
             self.tree_widget.blockSignals(True)
         item.setCheckState(0, QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked)
+        self._apply_checked_style(item, checked)
         if block_signals:
             self.tree_widget.blockSignals(False)
+
+    def _apply_checked_style(self, item, checked):
+        """
+        Highlight checked items
+        """
+        brush = QtGui.QBrush(QtGui.QColor(CHECKED_BG)) if checked else QtGui.QBrush()
+        item.setBackground(0, brush)
+        item.setBackground(1, brush)

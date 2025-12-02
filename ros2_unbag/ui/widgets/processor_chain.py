@@ -25,6 +25,7 @@ import inspect
 from PySide6 import QtCore, QtWidgets
 
 from ros2_unbag.core.processors import Processor
+from ros2_unbag.ui.styles import EMPTY_HINT_STYLE
 
 __all__ = ["ProcessorChainWidget"]
 
@@ -58,7 +59,7 @@ class ProcessorChainWidget(QtWidgets.QWidget):
         layout.addLayout(self.chain_layout)
 
         self.empty_hint = QtWidgets.QLabel("No processors configured.")
-        self.empty_hint.setStyleSheet("color: gray; font-style: italic;")
+        self.empty_hint.setStyleSheet(EMPTY_HINT_STYLE)
         layout.addWidget(self.empty_hint)
 
         add_row = QtWidgets.QHBoxLayout()
@@ -388,4 +389,3 @@ class _ProcessorEntry(QtWidgets.QFrame):
 
             self.args_layout.addRow(label, arg_edit)
             self.arg_inputs[arg_name] = arg_edit
-
