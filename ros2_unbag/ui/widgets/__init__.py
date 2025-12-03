@@ -20,8 +20,24 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .export_options import ExportOptions
-from .processor_chain import ProcessorChainWidget
-from .topic_selector import TopicSelector
+"""
+GUI Widgets Package.
 
-__all__ = ["ProcessorChainWidget", "TopicSelector", "ExportOptions"]
+Provides custom Qt widgets for the ros2_unbag graphical user interface:
+- TopicListWidget: Displays and manages topic selection
+- TopicSettingsWidget: Configures per-topic export options
+- GlobalSettingsWidget: Manages global export settings
+- ProcessorChainWidget: Builds ordered processor pipelines
+"""
+
+from .processor_chain import ProcessorChainWidget
+from .topic_list import TopicListWidget
+from .topic_settings import TopicSettingsWidget
+from .global_settings import GlobalSettingsWidget
+
+__all__ = [
+    "ProcessorChainWidget", 
+    "TopicListWidget",
+    "TopicSettingsWidget",
+    "GlobalSettingsWidget"
+]

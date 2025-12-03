@@ -8,7 +8,9 @@
   <a href="https://pypi.org/project/ros2-unbag/"><img src="https://img.shields.io/pypi/v/ros2-unbag?label=PyPI"/></a>
 </p>
 
-*ros2 unbag* is a ROS 2 CLI plugin with optional GUI for extracting selected topics from `.db3` or `.mcap` bag files into formats like CSV, JSON, PCD, images, and more.
+*ros2 unbag* is a powerful ROS 2 tool featuring an **intuitive GUI** and flexible CLI for extracting selected topics from `.db3` or `.mcap` bag files into formats like CSV, JSON, PCD, images, and more.
+
+The integrated GUI makes it easy to visualize your bag structure, select topics, configure export formats, set up processor chains, and manage resampling—all through an interactive interface. For automation and scripting workflows, the full-featured CLI provides the same capabilities with command-line arguments or JSON configuration files.
 
 It comes with export routines for [all message types](#export-routines) (sensor data, point clouds, images). You need a special file format or message type? Add your [own export plugin](#custom-export-routines) for any ROS 2 message or format, and chain custom processors to filter, transform or enrich messages (e.g. drop fields, compute derived values, remap frames).
 
@@ -16,7 +18,7 @@ Optional resampling synchronizes your data streams around a chosen master topic�
 
 For high‑throughput workflows, *ros2 unbag* can spawn multiple worker processes and lets you tune CPU usage. Your topic selections, processor chains, export parameters and resampling mode (last or nearest) can be saved to and loaded from a JSON configuration, ensuring reproducibility across runs.
 
-Use it as `ros2 unbag <args>` or in the GUI for a flexible, extensible way to turn bag files into the data you need.
+Whether you prefer the **GUI for interactive exploration** or `ros2 unbag <args>` for automated pipelines, you have a flexible, extensible way to turn bag files into the data you need.
 
 ## Table of Contents
 
@@ -41,13 +43,13 @@ Use it as `ros2 unbag <args>` or in the GUI for a flexible, extensible way to tu
 
 ## Features
 
-- **Integrated ROS 2 CLI plugin**: `ros2 unbag <args>`  
-- **GUI interface** for interactive export  
-- **Pluggable export routines** enable export of any message to any type  
-- **Custom processors** to filter, transform or enrich messages  
-- **Time‐aligned resampling** (`last` | `nearest`)  
-- **Multi‐process** export with adjustable CPU usage  
-- **JSON config** saving/loading for repeatable workflows  
+- **🎨 Intuitive GUI interface** for interactive bag exploration and export configuration
+- **⚙️ Full-featured ROS 2 CLI plugin**: `ros2 unbag <args>` for automation and scripting  
+- **🔌 Pluggable export routines** enable export of any message to any type  
+- **🔧 Custom processors** to filter, transform or enrich messages  
+- **⏱️ Time‐aligned resampling** (`last` | `nearest`)  
+- **🚀 Multi‐process** export with adjustable CPU usage  
+- **💾 JSON config** saving/loading for repeatable workflows
 
 ## Installation 
 
@@ -109,20 +111,18 @@ This image comes with ROS 2 Jazzy and *ros2 unbag* preinstalled. To launch it:
 
 ## Quick Start
 
-You can use the tool either via a graphical user interface (GUI) or a command-line interface (CLI).
+*ros2 unbag* offers both an **intuitive GUI** for interactive workflows and a **powerful CLI** for automation and scripting.
 
-### GUI Mode
+### GUI Mode (Recommended for First-Time Users)
 
-Launch the interactive interface:
+Launch the interactive graphical interface:
 
 ```bash
 ros2 unbag
 ```
 
-Then follow the on‑screen prompts to pick your bag file, select topics, and choose export settings.
 
-
-### CLI Mode
+### CLI Mode (For Automation & Scripting)
 
 Run the CLI tool by calling *ros2 unbag* with a path to a rosbag and an export config, consisting of one or more topic:format:[subdirectory] combinations:
 
@@ -165,9 +165,9 @@ ros2 unbag rosbag/rosbag.mcap
 ⚠️ If you specify the `--config` option (e.g., `--config configs/my_config.json`), the tool will load all export settings from the given JSON configuration file. In this case, all other command-line options except `<path_to_rosbag>` are ignored, and the export process is fully controlled by the config file. The `<path_to_rosbag>` is always required in CLI use.
 
 ## Config File
-When using ros2 unbag, you can define your export settings in a JSON configuration file. This works in the GUI, as well as in the CLI version. It allows you to easily reuse your export settings without having to specify them on the command line every time.
+When using ros2 unbag, you can define your export settings in a JSON configuration file. This works in both the GUI and CLI versions, allowing you to easily reuse your export settings without having to specify them on the command line every time.
 
-💡 Tip: Use the GUI to create your export settings and then save them via the "Save Config" button. This will create a JSON file with all your export settings, which you can then use in the CLI version.
+💡 **Pro Tip**: The easiest way to create a configuration file is through the GUI! Simply configure your export settings visually, then click the **"Save Config"** button. This generates a JSON file with all your settings, which you can then use in the CLI for automated workflows. This GUI-to-CLI workflow is perfect for developing and testing configurations interactively before deploying them in production scripts.
 
 ```jsonc
 {

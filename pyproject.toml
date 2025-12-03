@@ -38,7 +38,7 @@ where = ["."]
 include = ["ros2_unbag*"]
 
 [tool.setuptools.package-data]
-"ros2_unbag.ui" = ["assets/loading.gif", "assets/title.png"]
+"ros2_unbag.ui" = ["assets/loading.gif", "assets/title.png", "assets/badge.svg"]
 
 [project.optional-dependencies]
 test = [

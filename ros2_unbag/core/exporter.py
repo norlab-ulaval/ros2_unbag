@@ -430,54 +430,90 @@ class Exporter:
             latest_ts_seen = max(latest_ts_seen, ts)
             buffers[topic].append((ts, msg))
 
-            if topic != master_topic:
-                continue
-
-            # Attempt to process all buffered master messages up to current threshold
-            while buffers[master_topic]:
-                candidate_ts, candidate_msg = buffers[master_topic][0]
-                if candidate_ts + discard_eps_ns > latest_ts_seen:
-                    break  # Delay until more data arrives
-
-                master_ts = candidate_ts
-                frame = {master_topic: candidate_msg}
-                valid = True
-
-                # Find best match from each topic
-                for t in self.config:
-                    if t == master_topic:
-                        continue
-                    candidates = [
-                        (ts_, msg_)
-                        for ts_, msg_ in buffers[t]
-                        if abs(ts_ - master_ts) <= discard_eps_ns
-                    ]
-                    if not candidates:
-                        valid = False
-                        break
-                    selected_ts, selected_msg = min(
-                        candidates, key=lambda x: abs(x[0] - master_ts))
-                    frame[t] = selected_msg
-
-                if valid:
-                    for t, m in frame.items():
-                        self._enqueue_export_task(t, m)
-                else:
-                    for t in self.config:
-                        if t == master_topic:
-                            continue
-                        if not any(
-                            abs(ts_ - master_ts) <= discard_eps_ns for ts_, _ in buffers[t]):
-                            dropped_frames[t] += 1
-
-                # Remove processed master message
-                buffers[master_topic].popleft()
+            # Attempt to process buffered master messages with the data seen so far
+            self._drain_nearest_frames(
+                master_topic=master_topic,
+                buffers=buffers,
+                latest_ts_seen=latest_ts_seen,
+                discard_eps_ns=discard_eps_ns,
+                dropped_frames=dropped_frames,
+                flush=False,
+            )
 
             # Remove stale messages from buffers
             expire_before = latest_ts_seen - discard_eps_ns * 2
             for t in buffers:
                 while buffers[t] and buffers[t][0][0] < expire_before:
                     buffers[t].popleft()
+
+        # Final drain in case the last master frames waited for lookahead data
+        self._drain_nearest_frames(
+            master_topic=master_topic,
+            buffers=buffers,
+            latest_ts_seen=latest_ts_seen,
+            discard_eps_ns=discard_eps_ns,
+            dropped_frames=dropped_frames,
+            flush=True,
+        )
+
+    def _drain_nearest_frames(self, master_topic, buffers, latest_ts_seen,
+                              discard_eps_ns, dropped_frames, flush):
+        """
+        Drain buffered master frames and attempt to assemble synchronized frames using nearest association.
+
+        Try to process buffered master frames. When flush is False, wait until the
+        buffer has seen data beyond (master_ts + discard_eps_ns) to avoid
+        premature drops. On final flush, process whatever is available.
+
+        Args:
+            master_topic (str): Name of the master topic.
+            buffers (defaultdict(deque)): Per-topic buffers containing (timestamp, msg) tuples.
+            latest_ts_seen (int): Latest timestamp observed across topics (nanoseconds).
+            discard_eps_ns (int): Discard epsilon threshold in nanoseconds.
+            dropped_frames (dict): Mapping of topic -> dropped frame counts to update.
+            flush (bool): If True, force processing of remaining master frames.
+
+        Returns:
+            None
+        """
+        while buffers[master_topic]:
+            candidate_ts, candidate_msg = buffers[master_topic][0]
+            if not flush and candidate_ts + discard_eps_ns > latest_ts_seen:
+                break  # Wait for more data to safely evaluate this master frame
+
+            master_ts = candidate_ts
+            frame = {master_topic: candidate_msg}
+            valid = True
+
+            # Find best match from each topic
+            for t in self.config:
+                if t == master_topic:
+                    continue
+                candidates = [
+                    (ts_, msg_)
+                    for ts_, msg_ in buffers[t]
+                    if abs(ts_ - master_ts) <= discard_eps_ns
+                ]
+                if not candidates:
+                    valid = False
+                    break
+                selected_ts, selected_msg = min(
+                    candidates, key=lambda x: abs(x[0] - master_ts))
+                frame[t] = selected_msg
+
+            if valid:
+                for t, m in frame.items():
+                    self._enqueue_export_task(t, m)
+            else:
+                for t in self.config:
+                    if t == master_topic:
+                        continue
+                    if not any(
+                        abs(ts_ - master_ts) <= discard_eps_ns for ts_, _ in buffers[t]):
+                        dropped_frames[t] += 1
+
+            # Remove processed master message
+            buffers[master_topic].popleft()
 
     def _signal_worker_termination(self):
         """
