@@ -72,3 +72,16 @@ EXPORT_BADGE_UNSELECTED_STYLE = (
 )
 HELP_TEXT_STYLE = "color: gray; font-style: italic; margin-top: 20px;"
 EMPTY_HINT_STYLE = "color: gray; font-style: italic; font-size: 18px"
+
+# Progress and feedback styles
+PROGRESS_BAR_STYLE = (
+    f"QProgressBar {{ background: {BG_CARD}; border: 1px solid {BORDER};"
+    " border-radius: 6px; padding: 2px; text-align: center; color: #1f2937; }}"
+    f"QProgressBar::chunk {{ background-color: {PRIMARY}; border-radius: 4px; }}"
+)
+
+SUCCESS_BANNER_STYLE = (
+    f"#feedbackBanner {{ background: {BADGE_SELECTED_BG}; border: 1px solid {BADGE_SELECTED_BORDER};"
+    f" border-radius: 8px; padding: 8px 10px; }} "
+    f"#feedbackBanner QLabel {{ color: {BADGE_SELECTED_TEXT}; font-weight: 600; }}"
+)

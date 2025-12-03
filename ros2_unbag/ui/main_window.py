@@ -50,6 +50,8 @@ from ros2_unbag.ui.styles import (
     SCROLL_STYLE,
     GLOBAL_CONTAINER_STYLE,
     LEFT_HEADER_STYLE,
+    BG_WHITE,
+    PROGRESS_BAR_STYLE,
 )
 
 __all__ = ["UnbagApp"]
@@ -99,87 +101,6 @@ class WorkerThread(QtCore.QThread):
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(e)
-
-
-class LoadingDialog(QtWidgets.QDialog):
-    """
-    Custom loading dialog with animated GIF and progress bar.
-    
-    Displays a modal dialog with a loading animation and progress indicator.
-    Supports both determinate (0-100%) and indeterminate (pulsing) progress modes.
-    """
-    
-    def __init__(self, text, parent=None, indeterminate=False):
-        """
-        Initialize the LoadingDialog with display text and progress mode.
-
-        Args:
-            text: Message text to display in the dialog.
-            parent: Optional parent widget.
-            indeterminate: If True, shows pulsing progress bar; if False, shows 0-100% progress.
-
-        Returns:
-            None
-        """
-        super().__init__(parent)
-        self.setWindowTitle("Please Wait")
-        self.setModal(True)
-        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint)
-        
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-
-        # Text
-        text_label = QtWidgets.QLabel(text)
-        text_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        font = text_label.font()
-        font.setPointSize(10)
-        text_label.setFont(font)
-        layout.addWidget(text_label)
-
-        # GIF
-        gif_label = QtWidgets.QLabel(self)
-        gif_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        base_dir = Path(__file__).resolve().parent
-        gif_path = base_dir / "assets/loading.gif"
-        
-        if gif_path.exists():
-            gif_animation = QtGui.QMovie(str(gif_path))
-            gif_animation.setScaledSize(QtCore.QSize(64, 64))  # Ensure it's not too huge
-            gif_label.setMovie(gif_animation)
-            gif_animation.start()
-        else:
-            gif_label.setText("Loading...")
-            
-        layout.addWidget(gif_label)
-
-        # Progress Bar
-        self.progress_bar = QtWidgets.QProgressBar(self)
-        if indeterminate:
-            self.progress_bar.setRange(0, 0)  # Indeterminate
-            self.progress_bar.setTextVisible(False)
-        else:
-            self.progress_bar.setRange(0, 100)
-            self.progress_bar.setValue(0)
-            
-        layout.addWidget(self.progress_bar)
-        
-        # Fixed size for consistency
-        self.setFixedSize(300, 200)
-
-    @QtCore.Slot(int)
-    def setValue(self, value):
-        """
-        Update the progress bar to the given integer value.
-
-        Args:
-            value: Integer progress value (0-100).
-
-        Returns:
-            None
-        """
-        self.progress_bar.setValue(value)
 
 
 class UnbagApp(QtWidgets.QMainWindow):
@@ -318,14 +239,55 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.topic_settings = TopicSettingsWidget(Path.cwd())
         self.topic_settings.settings_changed.connect(self.on_settings_changed)
         self.topic_settings.export_toggle_requested.connect(self.on_badge_toggle)
-        
-        # Wrap in scroll area
+
+        # Middle container with scroll area; only the scroll contents swap to a loading card
+        mid_container = QtWidgets.QWidget()
+        mid_layout = QtWidgets.QVBoxLayout(mid_container)
+        mid_layout.setContentsMargins(0, 0, 0, 0)
+        mid_layout.setSpacing(0)
+
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setWidget(self.topic_settings)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         scroll.setStyleSheet(SCROLL_STYLE)
-        splitter.addWidget(scroll)
+
+        self.mid_stack = QtWidgets.QStackedWidget()
+
+        # Loading page: white card with centered gif
+        self.loading_page = QtWidgets.QWidget()
+        loading_layout = QtWidgets.QVBoxLayout(self.loading_page)
+        loading_layout.setContentsMargins(0, 0, 0, 0)
+        loading_layout.setSpacing(0)
+        loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.center_gif = QtWidgets.QLabel()
+        self.center_gif.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.center_gif.setStyleSheet(f"background: {BG_WHITE};")
+        self.center_gif.setMinimumHeight(240)
+        self.loading_percent = QtWidgets.QLabel("")
+        self.loading_percent.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_percent.setStyleSheet("font-size: 16px; font-weight: 700; color: #1f2937;")
+        gif_path = Path(__file__).resolve().parent / "assets/loading.gif"
+        self.center_gif_movie = None
+        if gif_path.exists():
+            movie = QtGui.QMovie(str(gif_path))
+            self.center_gif.setMovie(movie)
+            self.center_gif_movie = movie
+        loading_layout.addWidget(self.center_gif, 0, Qt.AlignmentFlag.AlignCenter)
+        loading_layout.addWidget(self.loading_percent, 0, Qt.AlignmentFlag.AlignCenter)
+
+        # Settings page
+        self.settings_page = QtWidgets.QWidget()
+        settings_layout = QtWidgets.QVBoxLayout(self.settings_page)
+        settings_layout.setContentsMargins(0, 0, 0, 0)
+        settings_layout.setSpacing(0)
+        settings_layout.addWidget(self.topic_settings)
+
+        self.mid_stack.addWidget(self.loading_page)
+        self.mid_stack.addWidget(self.settings_page)
+        self.mid_stack.setCurrentWidget(self.settings_page)
+        scroll.setWidget(self.mid_stack)
+        mid_layout.addWidget(scroll)
+        splitter.addWidget(mid_container)
 
         # 3. Right Column: Global & Summary
         self.global_settings = GlobalSettingsWidget()
@@ -347,11 +309,13 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_progress = QtWidgets.QProgressBar()
         self.status_progress.setRange(0, 0)  # indeterminate by default
+        self.status_progress.setStyleSheet(PROGRESS_BAR_STYLE)
         self.status_progress.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self.status_progress.setTextVisible(False)
         self.status_progress.setVisible(False)
         self.status_bar.addPermanentWidget(self.status_progress, 1)  # stretch across remaining space
         self._update_status_progress_width()
+        self._status_base_msg = "Ready"
         self.status_bar.showMessage("Ready")
 
     def show_init_screen(self):
@@ -398,9 +362,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.topic_settings.default_folder = self.bag_path.parent
         
         # Show loading in status bar
-        self.status_progress.setRange(0, 0)  # indeterminate pulse
-        self.status_progress.setVisible(True)
-        self.status_bar.showMessage("Loading bag file...")
+        self._show_status_progress("Loading bag file...", indeterminate=True)
 
         self.worker = WorkerThread(lambda p: BagReader(p), bag_path)
         self.worker.finished.connect(self.on_bag_loaded)
@@ -437,7 +399,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         Returns:
             None
         """
-        self.status_progress.setVisible(False)
+        self._hide_status_progress(f"Loaded {self.bag_path.name}")
         self.bag_reader = reader
         
         # Populate Topic List
@@ -462,6 +424,12 @@ class UnbagApp(QtWidgets.QMainWindow):
     def resizeEvent(self, event):
         """
         Keep the status bar progress indicator at ~80% of the available width and anchored right.
+
+        Args:
+            event: QResizeEvent delivered by Qt when the window is resized.
+
+        Returns:
+            None
         """
         super().resizeEvent(event)
         self._update_status_progress_width()
@@ -469,10 +437,88 @@ class UnbagApp(QtWidgets.QMainWindow):
     def _update_status_progress_width(self):
         """
         Adjust the status bar progress width to roughly 80% of the status bar space.
+
+        Ensures a minimum width to keep the progress control usable on very small windows.
+
+        Args:
+            None
+
+        Returns:
+            None
         """
         if hasattr(self, "status_bar") and hasattr(self, "status_progress"):
             target = max(120, int(self.status_bar.width() * 0.8))
             self.status_progress.setFixedWidth(target)
+
+    def _set_center_animation(self, running: bool):
+        """
+        Start or stop the inline loading gif in the middle card.
+
+        Shows the loading page and starts the gif when running is True, otherwise
+        stops the gif and switches back to the settings page.
+
+        Args:
+            running (bool): True to start the loading animation, False to stop it.
+
+        Returns:
+            None
+        """
+        if running:
+            self.mid_stack.setCurrentWidget(self.loading_page)
+            if self.center_gif_movie:
+                self.center_gif_movie.start()
+            if hasattr(self, "loading_percent"):
+                self.loading_percent.setText("")
+        else:
+            if self.center_gif_movie:
+                self.center_gif_movie.stop()
+            if hasattr(self, "loading_percent"):
+                self.loading_percent.setText("")
+            self.mid_stack.setCurrentWidget(self.settings_page)
+
+    def _show_status_progress(self, message: str, indeterminate: bool = True):
+        """
+        Display the status bar progress with optional determinate mode.
+
+        Sets the status message, configures the progress bar range/value, makes it visible,
+        and enables the center loading animation.
+
+        Args:
+            message (str): Message to show in the status bar.
+            indeterminate (bool): If True, show an indeterminate (busy) progress bar.
+                                 If False, set range 0-100 and reset value to 0.
+
+        Returns:
+            None
+        """
+        self._status_base_msg = message
+        self.status_bar.showMessage(message)
+        if indeterminate:
+            self.status_progress.setRange(0, 0)
+        else:
+            self.status_progress.setRange(0, 100)
+            self.status_progress.setValue(0)
+        self.status_progress.setVisible(True)
+        self._set_center_animation(True)
+
+    def _hide_status_progress(self, message: str | None = None):
+        """
+        Hide the status bar progress indicator and optional message.
+
+        Stops the center loading animation and hides the progress bar. If a message
+        is provided it is shown in the status bar.
+
+        Args:
+            message (str | None): Optional message to display after hiding progress.
+
+        Returns:
+            None
+        """
+        if message:
+            self._status_base_msg = message
+            self.status_bar.showMessage(message)
+        self.status_progress.setVisible(False)
+        self._set_center_animation(False)
 
     def handle_bag_error(self, e):
         """
@@ -484,8 +530,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         Returns:
             None
         """
-        self.status_progress.setVisible(False)
-        self.status_bar.showMessage("Failed to load bag")
+        self._hide_status_progress("Failed to load bag")
         QtWidgets.QMessageBox.critical(self, "Error", str(e))
 
     def on_topic_selected(self, topic):
@@ -675,11 +720,9 @@ class UnbagApp(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Configuration Error", str(e))
             return
 
+        self.global_settings.hide_feedback()
         self.setEnabled(False)
-        self.wait_dialog = LoadingDialog("Exporting...", self, indeterminate=False)
-        self.wait_dialog.show()
-        self.wait_dialog.finished.connect(self.on_export_aborted)
-        QtWidgets.QApplication.processEvents()
+        self._show_status_progress("Exporting...", indeterminate=False)
 
         self.worker = WorkerThread(self.run_export, self.bag_reader, config, global_config)
         self.worker.finished.connect(self.on_export_finished)
@@ -704,10 +747,21 @@ class UnbagApp(QtWidgets.QMainWindow):
         def progress(current, total):
             value = int((current / total) * 100)
             QtCore.QMetaObject.invokeMethod(
-                self.wait_dialog, "setValue",
+                self.status_progress, "setValue",
                 QtCore.Qt.ConnectionType.QueuedConnection,
                 Q_ARG(int, value)
             )
+            QtCore.QMetaObject.invokeMethod(
+                self.status_bar, "showMessage",
+                QtCore.Qt.ConnectionType.QueuedConnection,
+                Q_ARG(str, f"{self._status_base_msg} ({value}%)")
+            )
+            if hasattr(self, "loading_percent"):
+                QtCore.QMetaObject.invokeMethod(
+                    self.loading_percent, "setText",
+                    QtCore.Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(str, f"{value}%")
+                )
         
         self.current_exporter = Exporter(bag_reader, config, global_config, progress_callback=progress)
         self.current_exporter.run()
@@ -722,22 +776,9 @@ class UnbagApp(QtWidgets.QMainWindow):
         Returns:
             None
         """
-        self.wait_dialog.close()
+        self._hide_status_progress("Export complete")
         self.setEnabled(True)
-        QtWidgets.QMessageBox.information(self, "Done", "Export complete.")
-
-    def on_export_aborted(self, _):
-        """
-        Handle export abortion: signal the exporter to cleanly stop all workers.
-
-        Args:
-            _: Unused dialog result.
-
-        Returns:
-            None
-        """
-        if self.current_exporter:
-            self.current_exporter.abort_export()
+        self.global_settings.show_feedback("Export complete.")
 
     def handle_export_error(self, e):
         """
@@ -749,7 +790,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         Returns:
             None
         """
-        self.wait_dialog.close()
+        self._hide_status_progress("Export failed")
         self.setEnabled(True)
         QtWidgets.QMessageBox.critical(self, "Export Error", str(e))
 

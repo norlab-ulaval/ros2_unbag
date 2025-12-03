@@ -32,7 +32,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
-from ros2_unbag.ui.styles import EXPORT_BUTTON_STYLE
+from ros2_unbag.ui.styles import EXPORT_BUTTON_STYLE, SUCCESS_BANNER_STYLE
 
 __all__ = ["GlobalSettingsWidget"]
 
@@ -187,6 +187,31 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
 
         layout.addStretch()
 
+        # Inline feedback banner above export button
+        self.feedback_banner = QtWidgets.QFrame()
+        self.feedback_banner.setObjectName("feedbackBanner")
+        self.feedback_banner.setVisible(False)
+        self.feedback_banner.setStyleSheet(SUCCESS_BANNER_STYLE)
+        banner_layout = QtWidgets.QHBoxLayout(self.feedback_banner)
+        banner_layout.setContentsMargins(10, 6, 10, 6)
+        banner_layout.setSpacing(6)
+        self.feedback_label = QtWidgets.QLabel("")
+        banner_layout.addWidget(self.feedback_label)
+        banner_layout.addStretch()
+        self.feedback_close = QtWidgets.QToolButton()
+        self.feedback_close.setText("x")
+        self.feedback_close.setCursor(QtCore.Qt.PointingHandCursor)
+        self.feedback_close.setStyleSheet(
+            "QToolButton { border: none; padding: 2px; font-weight: 700; color: #475569; }"
+            "QToolButton:hover { color: #0f172a; }"
+        )
+        self.feedback_close.clicked.connect(self.hide_feedback)
+        banner_layout.addWidget(self.feedback_close)
+        self.feedback_timer = QtCore.QTimer(self)
+        self.feedback_timer.setSingleShot(True)
+        self.feedback_timer.timeout.connect(self.hide_feedback)
+        layout.addWidget(self.feedback_banner)
+
         # Export Button
         self.btn_export = QtWidgets.QPushButton("Unbag")
         self.btn_export.setMinimumHeight(56)
@@ -194,6 +219,44 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         self.btn_export.clicked.connect(self.export_clicked)
         self.btn_export.setEnabled(False)
         layout.addWidget(self.btn_export)
+
+    def show_feedback(self, message: str, duration_ms: int = 3500):
+        """
+        Display a transient banner message above the export button.
+
+        The banner text is set to the provided message and the banner is shown.
+        Any running feedback timer is stopped and a new single-shot timer is
+        started if duration_ms is non-zero, after which the banner will be hidden.
+
+        Args:
+            message: Text to display in the feedback banner.
+            duration_ms: Duration in milliseconds to keep the banner visible.
+                         If 0, the banner will remain visible until manually hidden.
+
+        Returns:
+            None
+        """
+        self.feedback_label.setText(message)
+        self.feedback_banner.setVisible(True)
+        self.feedback_timer.stop()
+        if duration_ms:
+            self.feedback_timer.start(duration_ms)
+
+    def hide_feedback(self):
+        """
+        Hide the inline feedback banner and stop its timer.
+
+        Stops the feedback timer (if running) and hides the banner so it is no
+        longer visible to the user.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.feedback_timer.stop()
+        self.feedback_banner.setVisible(False)
 
     def _on_assoc_changed(self, text):
         """
