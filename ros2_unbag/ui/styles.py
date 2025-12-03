@@ -71,4 +71,4 @@ EXPORT_BADGE_UNSELECTED_STYLE = (
     "border-radius: 20px; padding: 6px; margin: 0; font-size: 25px; font-weight: 700;"
 )
 HELP_TEXT_STYLE = "color: gray; font-style: italic; margin-top: 20px;"
-EMPTY_HINT_STYLE = "color: gray; font-style: italic;"
+EMPTY_HINT_STYLE = "color: gray; font-style: italic; font-size: 18px"

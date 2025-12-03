@@ -126,33 +126,44 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         cpu_layout = QtWidgets.QHBoxLayout()
         cpu_layout.addWidget(self.cpu_slider)
         cpu_layout.addWidget(self.cpu_spin)
-        form_layout.addRow("CPU Usage %", cpu_layout)
+        cpu_label = QtWidgets.QLabel("CPU Usage %")
+        cpu_label.setToolTip("Set the maximum CPU percentage allowed for export workers.")
+        form_layout.addRow(cpu_label, cpu_layout)
 
         # Resampling
         self.assoc_combo = QtWidgets.QComboBox()
         self.assoc_combo.addItems(["no resampling", "last", "nearest"])
         self.assoc_combo.currentTextChanged.connect(self._on_assoc_changed)
-        form_layout.addRow("Association", self.assoc_combo)
+        assoc_label = QtWidgets.QLabel("Association")
+        assoc_label.setToolTip("Choose how to align messages to a master timeline (or disable resampling).")
+        form_layout.addRow(assoc_label, self.assoc_combo)
 
         self.eps_edit = QtWidgets.QLineEdit()
         self.eps_edit.setPlaceholderText("e.g. 0.5")
         self.eps_edit.setEnabled(False)
-        form_layout.addRow("Discard Eps (s)", self.eps_edit)
+        eps_label = QtWidgets.QLabel("Discard Eps (s)")
+        eps_label.setToolTip("Discard messages with timestamp offsets larger than this (seconds).")
+        form_layout.addRow(eps_label, self.eps_edit)
 
         self.master_combo = QtWidgets.QComboBox()
         self.master_combo.setEnabled(False)
-        form_layout.addRow("Master Topic", self.master_combo)
+        master_label = QtWidgets.QLabel("Master Topic")
+        master_label.setToolTip("Select the master topic used as the timing reference when resampling.")
+        form_layout.addRow(master_label, self.master_combo)
 
         layout.addWidget(gb_settings)
 
         # Base Directory Group
         gb_base = QtWidgets.QGroupBox("Base Directory")
+        gb_base.setToolTip("Changes the base directory for all topic exports at once.")
         base_layout = QtWidgets.QVBoxLayout(gb_base)
         base_layout.setSpacing(6)
         base_layout.setContentsMargins(10, 10, 10, 10)
         self.base_dir_label = QtWidgets.QLabel(str(self.base_dir))
         self.base_dir_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
         self.base_dir_label.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self.base_dir_full = str(self.base_dir)
+        self.base_dir_label.setToolTip(self.base_dir_full)
         self.btn_base_dir = QtWidgets.QPushButton("Change")
         self.btn_base_dir.clicked.connect(self._choose_base_dir)
         row = QtWidgets.QHBoxLayout()
@@ -168,6 +179,7 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
 
         # Summary Group
         gb_summary = QtWidgets.QGroupBox("Summary")
+        gb_summary.setToolTip("Shows how many topics are selected for export out of the total loaded.")
         self.summary_layout = QtWidgets.QVBoxLayout(gb_summary)
         self.summary_label = QtWidgets.QLabel("No bag loaded.")
         self.summary_layout.addWidget(self.summary_label)
@@ -256,7 +268,9 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
 
     def set_base_dir(self, path: str | Path):
         self.base_dir = Path(path)
-        self.base_dir_label.setText(str(self.base_dir))
+        self.base_dir_full = str(self.base_dir)
+        self.base_dir_label.setToolTip(self.base_dir_full)
+        self._update_base_dir_label()
 
     def set_base_dir_enabled(self, enabled: bool):
         self.btn_base_dir.setEnabled(enabled)
@@ -330,3 +344,37 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
             self.cpu_slider.blockSignals(True)
             self.cpu_slider.setValue(int(round(config["cpu_percentage"])))
             self.cpu_slider.blockSignals(False)
+
+    def resizeEvent(self, event):
+        """
+        Handle widget resize and update elided base directory label.
+
+        Args:
+            event: Qt resize event delivered by the Qt framework.
+
+        Returns:
+            None
+        """
+        super().resizeEvent(event)
+        self._update_base_dir_label()
+
+    def _update_base_dir_label(self):
+        """
+        Elide the base directory path for display while preserving the full path in the tooltip.
+
+        Ensures the label text is shortened with an ellipsis in the middle if it does
+        not fit within the available width. The full path remains available via the
+        label tooltip.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if not hasattr(self, "base_dir_full"):
+            self.base_dir_full = str(self.base_dir)
+        fm = self.base_dir_label.fontMetrics()
+        available = max(40, self.base_dir_label.width())
+        elided = fm.elidedText(self.base_dir_full, QtCore.Qt.ElideMiddle, available)
+        self.base_dir_label.setText(elided)

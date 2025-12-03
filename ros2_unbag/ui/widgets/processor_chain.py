@@ -80,7 +80,6 @@ class ProcessorChainWidget(QtWidgets.QWidget):
         layout.addLayout(self.chain_layout)
 
         self.empty_hint = QtWidgets.QLabel("No processors configured.")
-        self.empty_hint.setStyleSheet(EMPTY_HINT_STYLE)
         layout.addWidget(self.empty_hint)
 
         add_row = QtWidgets.QHBoxLayout()

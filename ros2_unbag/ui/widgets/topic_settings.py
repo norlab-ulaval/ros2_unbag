@@ -37,6 +37,7 @@ from ros2_unbag.ui.styles import (
     EXPORT_BADGE_SELECTED_STYLE,
     EXPORT_BADGE_UNSELECTED_STYLE,
     HELP_TEXT_STYLE,
+    EMPTY_HINT_STYLE,
 )
 from ros2_unbag.core.processors import Processor
 from ros2_unbag.core.routines import ExportRoutine, ExportMode
@@ -121,6 +122,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
 
         self.topic_label = QtWidgets.QLabel("No Topic Selected")
         self.topic_label.setStyleSheet(TS_TOPIC_STYLE)
+        self.topic_label.setVisible(False)
         header_block.addWidget(self.topic_label)
 
         header_row.addLayout(header_block)
@@ -202,6 +204,12 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self._placeholder_pixmap = QtGui.QPixmap(str(img_path)) if img_path.exists() else None
         self.layout.addWidget(self.placeholder)
         self.layout.setAlignment(self.placeholder, QtCore.Qt.AlignCenter)
+        self.placeholder_hint = QtWidgets.QLabel("Please select topic to configure export")
+        self.placeholder_hint.setAlignment(QtCore.Qt.AlignCenter)
+        self.placeholder_hint.setStyleSheet(EMPTY_HINT_STYLE)
+        self.placeholder_hint.setVisible(True)
+        self.layout.addWidget(self.placeholder_hint)
+        self.layout.setAlignment(self.placeholder_hint, QtCore.Qt.AlignCenter)
         
         # Help Text (hidden until a topic is selected)
         self.layout.addStretch()
@@ -271,10 +279,12 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.current_type = topic_type
         
         self.topic_label.setText(topic)
+        self.topic_label.setVisible(True)
         self.content_widget.setVisible(True)
         self.help_text.setVisible(True)
         self.export_state.setVisible(True)
         self.placeholder.setVisible(False)
+        self.placeholder_hint.setVisible(False)
         # Export state will be set by caller based on selection
 
         # Block signals to prevent auto-saving during load
