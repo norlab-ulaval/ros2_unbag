@@ -118,18 +118,18 @@ class Exporter:
             sub_tmpl  = cfg.get('subfolder', '').strip('/')
 
             uses_index_or_ts = any(x in s for s in (name_tmpl, path_tmpl, sub_tmpl)
-                                for x in ("%index", "%timestamp"))
+                                for x in ("%index", "%timestamp", "%master_timestamp"))
             has_strftime_name = is_strftime_in_template(name_tmpl)
             has_strftime_path = (is_strftime_in_template(path_tmpl) or is_strftime_in_template(sub_tmpl))
 
             # Check for conflicting templates
             if self.export_mode[topic] == ExportMode.SINGLE_FILE and (uses_index_or_ts or has_strftime_name or has_strftime_path):
                 raise ValueError(
-                    f"SINGLE_FILE mode for '{topic}' forbids %index/%timestamp and strftime in naming/path/subfolder."
+                    f"You are using a routine that stores data to one single file for topic: {topic}. You can not use %index/%timestamp/%master_timestamp and strftime in the naming, path or subfolder. This would lead to multiple files being created."
                 )
             if self.export_mode[topic] == ExportMode.MULTI_FILE and not (uses_index_or_ts or has_strftime_name):
                 raise ValueError(
-                    f"MULTI_FILE mode for '{topic}' requires %index/%timestamp in naming/path/subfolder."
+                    f"You are using a routine that stores data to multiple files for topic: {topic}. This requires %index/%timestamp/%master_timestamp in naming/path/subfolder. Else data would be overwritten."
                 )
 
             # Cache per-topic data
@@ -386,7 +386,7 @@ class Exporter:
 
             if frame:
                 for t, m in frame.items():
-                    self._enqueue_export_task(t, m)
+                    self._enqueue_export_task(t, m, master_ts=master_ts)
             else:
                 for t in self.config:
                     if t == master_topic:
@@ -503,7 +503,7 @@ class Exporter:
 
             if valid:
                 for t, m in frame.items():
-                    self._enqueue_export_task(t, m)
+                    self._enqueue_export_task(t, m, master_ts=master_ts)
             else:
                 for t in self.config:
                     if t == master_topic:
@@ -552,13 +552,14 @@ class Exporter:
             self.logger.info(f"  {topic}: {count} times")
 
 
-    def _enqueue_export_task(self, topic, msg):
+    def _enqueue_export_task(self, topic, msg, master_ts=None):
         """
         Build filename and directory for a topic message, create path, and enqueue the export task with format.
 
         Args:
             topic: Topic name (str).
             msg: ROS2 message instance.
+            master_ts: Optional timestamp of the master topic (float/int).
 
         Returns:
             None
@@ -577,6 +578,7 @@ class Exporter:
             "name": cache["topic_base"],
             "index": str(index).zfill(idx_len),
             "timestamp": str(ts_float),
+            "master_timestamp": str(master_ts) if master_ts is not None else str(ts_float),
         }
 
         naming = substitute_placeholders(cache["name_tmpl"], replacements)

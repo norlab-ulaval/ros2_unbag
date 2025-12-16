@@ -220,6 +220,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
             "  %name (topic name)\n"
             "  %index (msg idx)\n"
             "  %timestamp (msg timestamp in nanoseconds)\n"
+            "  %master_timestamp (master topic timestamp when resampling)\n"
             "  %Y-%m-%d_%H-%M-%S (timestamp)"
         )
         self.help_text.setStyleSheet(HELP_TEXT_STYLE)
