@@ -213,8 +213,15 @@ class UnbagApp(QtWidgets.QMainWindow):
         bag_group = QtWidgets.QGroupBox("Bag File")
         bag_layout = QtWidgets.QVBoxLayout(bag_group)
         self.lbl_bag_name = QtWidgets.QLabel("No bag loaded")
+        self.lbl_bag_name.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self.lbl_bag_name.setWordWrap(True)
-        bag_layout.addWidget(self.lbl_bag_name)
+        self.btn_load_bag_secondary = QtWidgets.QPushButton("Load Bag")
+        self.btn_load_bag_secondary.clicked.connect(self.load_bag)
+        bag_row = QtWidgets.QHBoxLayout()
+        bag_row.addWidget(self.lbl_bag_name)
+        bag_row.addStretch()
+        bag_row.addWidget(self.btn_load_bag_secondary)
+        bag_layout.addLayout(bag_row)
         left_layout.addWidget(bag_group)
 
         # Topic List

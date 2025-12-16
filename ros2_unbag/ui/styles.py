@@ -76,8 +76,8 @@ EMPTY_HINT_STYLE = "color: gray; font-style: italic; font-size: 18px"
 # Progress and feedback styles
 PROGRESS_BAR_STYLE = (
     f"QProgressBar {{ background: {BG_CARD}; border: 1px solid {BORDER};"
-    " border-radius: 6px; padding: 2px; text-align: center; color: #1f2937; }}"
-    f"QProgressBar::chunk {{ background-color: {PRIMARY}; border-radius: 4px; }}"
+    " border-radius: 6px; padding: 2px; text-align: center; color: #1f2937; }"
+    f" QProgressBar::chunk {{ background-color: {PRIMARY}; border-radius: 4px; }}"
 )
 
 SUCCESS_BANNER_STYLE = (
