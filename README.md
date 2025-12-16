@@ -8,7 +8,7 @@
   <a href="https://pypi.org/project/ros2-unbag/"><img src="https://img.shields.io/pypi/v/ros2-unbag?label=PyPI"/></a>
 </p>
 
-*ros2 unbag* is a powerful ROS 2 tool featuring an **intuitive GUI** and flexible CLI for extracting selected topics from `.db3` or `.mcap` bag files into formats like CSV, JSON, PCD, images, and more.
+*ros2 unbag* is a powerful ROS 2 tool featuring an intuitive GUI and flexible CLI for extracting selected topics from `.db3` or `.mcap` bag files into formats like CSV, JSON, PCD, images, and more.
 
 The integrated GUI makes it easy to visualize your bag structure, select topics, configure export formats, set up processor chains, and manage resampling—all through an interactive interface. For automation and scripting workflows, the full-featured CLI provides the same capabilities with command-line arguments or JSON configuration files.
 

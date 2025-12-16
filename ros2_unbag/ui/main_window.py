@@ -669,11 +669,13 @@ class UnbagApp(QtWidgets.QMainWindow):
         """
         # Gather config for all SELECTED (checked) topics
         final_config = {}
+        errors = []
         
         # First, ensure current settings in middle column are saved
         current_topic = self.topic_settings.current_topic
         if current_topic:
             self.topics_config[current_topic].update(self.topic_settings.get_config())
+            self.topic_settings.validate_inputs()
 
         global_cfg = self.global_settings.get_config()
         
@@ -704,10 +706,22 @@ class UnbagApp(QtWidgets.QMainWindow):
                         # Also set default path/naming if empty
                         if "path" not in cfg: cfg["path"] = str(self.bag_path.parent)
                         if "naming" not in cfg: cfg["naming"] = "%name"
-                if "subfolder" not in cfg or not cfg.get("subfolder"):
+                if "subfolder" not in cfg:
                     cfg["subfolder"] = "%name"
                 
+                cfg["path"] = (cfg.get("path") or "").strip()
+                cfg["subfolder"] = (cfg.get("subfolder") or "").strip("/")
+                cfg["naming"] = (cfg.get("naming") or "").strip()
+
+                if not cfg["path"]:
+                    errors.append(f"{topic}: Output Directory is required.")
+                if not cfg["naming"]:
+                    errors.append(f"{topic}: Naming scheme is required.")
+                
                 final_config[topic] = cfg
+
+        if errors:
+            raise ValueError("Please fix the following per-topic settings:\n- " + "\n- ".join(errors))
 
         return final_config, global_cfg
 
