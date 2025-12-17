@@ -38,6 +38,7 @@ from ros2_unbag.ui.styles import (
     EXPORT_BADGE_UNSELECTED_STYLE,
     HELP_TEXT_STYLE,
     EMPTY_HINT_STYLE,
+    INPUT_ERROR_STYLE,
 )
 from ros2_unbag.core.processors import Processor
 from ros2_unbag.core.routines import ExportRoutine, ExportMode
@@ -106,6 +107,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         """
         self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.setAlignment(QtCore.Qt.AlignTop)
+        self.setStyleSheet(INPUT_ERROR_STYLE)  # enables property-based error styling for child inputs
 
         # Header row with title/topic and export badge on the right
         header_row = QtWidgets.QHBoxLayout()
@@ -218,6 +220,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
             "  %name (topic name)\n"
             "  %index (msg idx)\n"
             "  %timestamp (msg timestamp in nanoseconds)\n"
+            "  %master_timestamp (master topic timestamp when resampling)\n"
             "  %Y-%m-%d_%H-%M-%S (timestamp)"
         )
         self.help_text.setStyleSheet(HELP_TEXT_STYLE)
@@ -225,6 +228,8 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         self.layout.addWidget(self.help_text)
 
         # Connect change signals
+        self.path_edit.textChanged.connect(self._apply_validation_styles)
+        self.naming_edit.textChanged.connect(self._apply_validation_styles)
         self.path_edit.editingFinished.connect(self._emit_change)
         self.subdir_edit.editingFinished.connect(self._emit_change)
         self.naming_edit.editingFinished.connect(self._emit_change)
@@ -317,8 +322,11 @@ class TopicSettingsWidget(QtWidgets.QWidget):
 
         # 3. Set other fields
         self.path_edit.setText(config.get("path", str(self.default_folder)))
-        subdir = (config.get("subfolder") or "%name").strip("/")
-        self.subdir_edit.setText(subdir or "%name")
+        subdir_value = config.get("subfolder", "%name")
+        if subdir_value is None:
+            subdir_value = ""
+        subdir = subdir_value.strip("/")
+        self.subdir_edit.setText(subdir)
         self.naming_edit.setText(config.get("naming", "%name"))
         self._sync_naming_with_mode(initial=True)
         
@@ -350,6 +358,7 @@ class TopicSettingsWidget(QtWidgets.QWidget):
             lbl = QtWidgets.QLabel("No processors available")
             self.processor_layout.addWidget(lbl)
 
+        self._apply_validation_styles()
         self.blockSignals(False)
 
     def get_config(self):
@@ -381,9 +390,9 @@ class TopicSettingsWidget(QtWidgets.QWidget):
 
         cfg = {
             "format": fmt,
-            "path": self.path_edit.text(),
-            "subfolder": self.subdir_edit.text(),
-            "naming": self.naming_edit.text()
+            "path": self.path_edit.text().strip(),
+            "subfolder": self.subdir_edit.text().strip("/"),
+            "naming": self.naming_edit.text().strip()
         }
         
         if self.chain_widget:
@@ -606,5 +615,50 @@ class TopicSettingsWidget(QtWidgets.QWidget):
         Returns:
             None
         """
+        self._apply_validation_styles()
         if self.current_topic:
             self.settings_changed.emit(self.current_topic, self.get_config())
+
+    def _apply_validation_styles(self):
+        """
+        Apply error styling to required fields and report validity.
+
+        Args:
+            None
+
+        Returns:
+            bool: True if all required fields are non-empty, False otherwise.
+        """
+        path_empty = not self.path_edit.text().strip()
+        naming_empty = not self.naming_edit.text().strip()
+        self._set_error_state(self.path_edit, path_empty)
+        self._set_error_state(self.naming_edit, naming_empty)
+        return not (path_empty or naming_empty)
+
+    def _set_error_state(self, widget, is_error):
+        """
+        Apply or clear the error style for a widget while preserving its base style.
+
+        Args:
+            widget: The input widget to style.
+            is_error: Whether to show the error styling.
+
+        Returns:
+            None
+        """
+        widget.setProperty("error", is_error)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+        widget.update()
+
+    def validate_inputs(self):
+        """
+        Validate required fields and update their styling.
+
+        Args:
+            None
+
+        Returns:
+            bool: True if required fields are valid, False otherwise.
+        """
+        return self._apply_validation_styles()

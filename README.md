@@ -8,7 +8,7 @@
   <a href="https://pypi.org/project/ros2-unbag/"><img src="https://img.shields.io/pypi/v/ros2-unbag?label=PyPI"/></a>
 </p>
 
-*ros2 unbag* is a powerful ROS 2 tool featuring an **intuitive GUI** and flexible CLI for extracting selected topics from `.db3` or `.mcap` bag files into formats like CSV, JSON, PCD, images, and more.
+*ros2 unbag* is a powerful ROS 2 tool featuring an intuitive GUI and flexible CLI for extracting selected topics from `.db3` or `.mcap` bag files into formats like CSV, JSON, PCD, images, and more.
 
 The integrated GUI makes it easy to visualize your bag structure, select topics, configure export formats, set up processor chains, and manage resampling—all through an interactive interface. For automation and scripting workflows, the full-featured CLI provides the same capabilities with command-line arguments or JSON configuration files.
 
@@ -142,7 +142,7 @@ In addition to these required flags, there are some optional flags. See the tabl
 | **`bag`**                   | `<path>`                                 | Path to ROS 2 bag file (`.db3` or `.mcap`).                                                                                       | CLI mode (required)                | –              |
 | **`-e, --export`**          | `/topic:format[:subdir]`                 | Topic → format export spec. Repeatable.                                                                                           | CLI mode (required or `--config`)  | –              |
 | **`-o, --output-dir`**      | `<directory>`                            | Base directory for all exports.                                                                                                   | Optional                           | `.`            |
-| **`--naming`**              | `<pattern>`                              | Filename pattern. Supports `%name`, `%index`, `%timestamp` and strftime (e.g. `%Y-%m-%d_%H-%M-%S`) - uses ROS timestamp           | Optional                           | `%name_%index` |
+| **`--naming`**              | `<pattern>`                              | Filename pattern. Supports `%name`, `%index`, `%timestamp`, `%master_timestamp` (when resampling), and strftime (e.g. `%Y-%m-%d_%H-%M-%S`) using ROS timestamps | Optional                           | `%name_%index` |
 | **`--resample`**            | `/master:association[,discard_eps]`.     | Time‑align to master topic. `association` = `last` or `nearest`; `nearest` needs a numeric `discard_eps`.                         | Optional                           | –              |
 | **`-p, --processing`**      | `/topic:processor[:arg=value,…]`         | Pre‑export processor spec; repeat to build ordered chains (executed in the order provided).                                       | Optional                           | –              |
 | **`--cpu-percentage`**      | `<float>`                                | % of cores for parallel export (0–100). Use `0` for single‑threaded.                                                              | Optional                           | `80.0`         |

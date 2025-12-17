@@ -58,7 +58,7 @@ class ExportCommand(CommandExtension):
         parser.add_argument("--output-dir", "-o", help="Base output directory")
         parser.add_argument(
             "--naming", default=None,
-            help="Naming pattern. Supports %%name, %%index, and strftime (e.g. `%%Y-%%m-%%d_%%H-%%M-%%S`) which uses ROS timestamp. Defaults to %%name for single-file routines and %%name_%%index for multi-file routines.")
+            help="Naming pattern. Supports %%name, %%index, %%timestamp, %%master_timestamp (when resampling), and strftime (e.g. `%%Y-%%m-%%d_%%H-%%M-%%S`) using ROS timestamps. Defaults to %%name for single-file routines and %%name_%%index for multi-file routines.")
         parser.add_argument(
             "--resample",
             help="Optional resampling: /master_topic:association[,discard_eps]")

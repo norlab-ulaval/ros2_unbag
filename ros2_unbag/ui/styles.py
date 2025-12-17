@@ -72,12 +72,13 @@ EXPORT_BADGE_UNSELECTED_STYLE = (
 )
 HELP_TEXT_STYLE = "color: gray; font-style: italic; margin-top: 20px;"
 EMPTY_HINT_STYLE = "color: gray; font-style: italic; font-size: 18px"
+INPUT_ERROR_STYLE = "QLineEdit[error='true'] { border: 1px solid #ef4444; background: #fff1f2; }"
 
 # Progress and feedback styles
 PROGRESS_BAR_STYLE = (
     f"QProgressBar {{ background: {BG_CARD}; border: 1px solid {BORDER};"
-    " border-radius: 6px; padding: 2px; text-align: center; color: #1f2937; }}"
-    f"QProgressBar::chunk {{ background-color: {PRIMARY}; border-radius: 4px; }}"
+    " border-radius: 6px; padding: 2px; text-align: center; color: #1f2937; }"
+    f" QProgressBar::chunk {{ background-color: {PRIMARY}; border-radius: 4px; }}"
 )
 
 SUCCESS_BANNER_STYLE = (
