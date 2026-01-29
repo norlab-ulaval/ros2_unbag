@@ -11,10 +11,6 @@
 
 *ros2 unbag* is a powerful ROS 2 tool featuring an **intuitive GUI** and **flexible CLI** for extracting topics from `.db3` or `.mcap` bag files into formats like CSV, JSON, PCD, images, and more.
 
-<table border="0" width="100%">
-  <tr>
-    <td valign="top">
-
 - **🎨 Intuitive GUI interface** for interactive bag exploration and export configuration
 - **⚙️ Full-featured ROS 2 CLI plugin**: `ros2 unbag <args>` for automation and scripting  
 - **🔌 Pluggable export routines** enable export of any message to any type  
@@ -23,27 +19,8 @@
 - **🚀 Multi‐process** export with adjustable CPU usage  
 - **💾 JSON config** saving/loading for repeatable workflows
 
-    </td>
-    <td align="right" valign="top">
-      <a href="ros2_unbag/ui/assets/GUI.png">
-        <img src="ros2_unbag/ui/assets/GUI.png" alt="ros2 unbag GUI" width="450"/>
-      </a>
-    </td>
-  </tr>
-</table>
-
-The integrated GUI makes it easy to visualize your bag structure, select topics, configure export formats, set up processor chains, and manage resampling—all through an interactive interface. For automation and scripting workflows, the full-featured CLI provides the same capabilities with command-line arguments or JSON configuration files.
-
-It comes with export routines for [all message types](docs/EXPORT_ROUTINES.md) (sensor data, point clouds, images). You need a special file format or message type? Add your [own export plugin](docs/EXPORT_ROUTINES.md#custom-export-routines) for any ROS 2 message or format, and chain [custom processors](docs/PROCESSORS.md) to filter, transform or enrich messages (e.g. drop fields, compute derived values, remap frames).
-
-Optional [resampling](docs/ADVANCED_USAGE.md#resampling) synchronizes your data streams around a chosen master topic—aligning each other topic either to its last‑known sample (“last”) or to the temporally closest sample (“nearest”)—so you get a consistent sample count in your exports.
-
-For high‑throughput workflows, *ros2 unbag* can spawn multiple worker processes and lets you [tune CPU usage](docs/ADVANCED_USAGE.md#cpu-utilization). Your topic selections, processor chains, export parameters and resampling mode (last or nearest) can be saved to and loaded from a [JSON configuration](docs/ADVANCED_USAGE.md#configuration-files), ensuring reproducibility across runs.
-
-Whether you prefer the **GUI for interactive exploration** or `ros2 unbag <args>` for automated pipelines, you have a flexible, extensible way to turn bag files into the data you need.
-
 ## Table of Contents
-
+- [Introduction](#introduction)
 - [Installation](#installation)  
   - [Prerequisites](#prerequisites)  
   - [From PyPI (via pip)](#from-pypi-via-pip)  
@@ -57,6 +34,23 @@ Whether you prefer the **GUI for interactive exploration** or `ros2 unbag <args>
   - [Processors](docs/PROCESSORS.md) - Message transformation and filtering
   - [Advanced Usage](docs/ADVANCED_USAGE.md) - Config files, resampling, CPU tuning
 - [Acknowledgements](#acknowledgements)
+
+## Introduction
+<p align="center">
+  <a href="ros2_unbag/ui/assets/GUI.png">
+    <img src="ros2_unbag/ui/assets/GUI.png" alt="ros2 unbag GUI" style="max-width: 600px; width: 100%; height: auto;"/>
+  </a>
+</p>
+
+The integrated GUI makes it easy to visualize your bag structure, select topics, configure export formats, set up processor chains, and manage resampling—all through an interactive interface. For automation and scripting workflows, the full-featured CLI provides the same capabilities with command-line arguments or JSON configuration files.
+
+It comes with export routines for [all message types](docs/EXPORT_ROUTINES.md) (sensor data, point clouds, images). You need a special file format or message type? Add your [own export plugin](docs/EXPORT_ROUTINES.md#custom-export-routines) for any ROS 2 message or format, and chain [custom processors](docs/PROCESSORS.md) to filter, transform or enrich messages (e.g. drop fields, compute derived values, remap frames).
+
+Optional [resampling](docs/ADVANCED_USAGE.md#resampling) synchronizes your data streams around a chosen master topic—aligning each other topic either to its last‑known sample (“last”) or to the temporally closest sample (“nearest”)—so you get a consistent sample count in your exports.
+
+For high‑throughput workflows, *ros2 unbag* can spawn multiple worker processes and lets you [tune CPU usage](docs/ADVANCED_USAGE.md#cpu-utilization). Your topic selections, processor chains, export parameters and resampling mode (last or nearest) can be saved to and loaded from a [JSON configuration](docs/ADVANCED_USAGE.md#configuration-files), ensuring reproducibility across runs.
+
+Whether you prefer the **GUI for interactive exploration** or `ros2 unbag <args>` for automated pipelines, you have a flexible, extensible way to turn bag files into the data you need.
 
 ## Installation 
 
