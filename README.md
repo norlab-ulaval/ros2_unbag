@@ -27,8 +27,8 @@
   - [From Source](#from-source)  
   - [Docker](#docker)  
 - [Quick Start](#quick-start)  
-  - [GUI Mode](#gui-mode)  
-  - [CLI Mode](#cli-mode)  
+  - [GUI Mode](#gui-mode-recommended-for-first-time-users)  
+  - [CLI Mode](#cli-mode-for-automation--scripting)  
 - [Documentation](#documentation)
   - [Export Routines](docs/EXPORT_ROUTINES.md) - Built-in and custom export formats
   - [Processors](docs/PROCESSORS.md) - Message transformation and filtering
@@ -135,7 +135,7 @@ Alternatively you can load a config file. In this case you do not need any `--ex
 ```bash
 ros2 unbag <path_to_rosbag> --config <config.json>
 ```
-the structure of config files is described in [here](#config-file).
+the structure of config files is described in [here](./docs/ADVANCED_USAGE.md#configuration-file-structure).
 
 In addition to these required flags, there are some optional flags. See the table below, for all possible flags:
 | Flag                        | Value/Format                             | Description                                                                                                                       | Usage                              | Default        |
