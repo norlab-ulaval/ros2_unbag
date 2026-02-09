@@ -57,6 +57,9 @@ class Exporter:
         self.topic_types = self.bag_reader.topic_types
         self.progress_callback = progress_callback
 
+        # Create a queue for worker exceptions to communicate back to the main process
+        self.exception_queue = mp.Queue()
+
         # check if topic exists in the bag, if not, raise an error and list all available topics
         for topic in self.config:
             if topic not in self.topic_types:
@@ -64,6 +67,7 @@ class Exporter:
 
         self.index_map = {t: 0 for t in self.config}
         self._resolved_formats = {}
+        self._topic_cache = {}
         for topic, cfg in self.config.items():
             fmt = cfg['format']
             topic_type = self.topic_types[topic]
@@ -76,14 +80,16 @@ class Exporter:
         self.sequential_topics = [t for t, m in self.export_mode.items() if m == ExportMode.SINGLE_FILE]
 
         # Default queue size to control memory usage (backpressure) and prevent OOM
-        queue_size = int(self.global_config.get("queue_size", 50))
+        queue_size = max(1, int(self.global_config.get("queue_size", 500)))
         
         # one queue for parallel topics
         self.parallel_q = mp.Queue(maxsize=queue_size)
         # one queue per sequential topic
         self.seq_queues = {t: mp.Queue(maxsize=queue_size) for t in self.sequential_topics}
 
-        self.num_workers = max(1, int(mp.cpu_count() * self.global_config["cpu_percentage"] * 0.01))
+        cpu_percentage = float(self.global_config.get("cpu_percentage", 80.0))
+        cpu_percentage = max(0.0, min(100.0, cpu_percentage))
+        self.num_workers = max(1, int(mp.cpu_count() * cpu_percentage * 0.01))
         self.num_parallel_workers = max(1, self.num_workers - len(self.sequential_topics))
 
         self.logger.info(f"Using {self.num_workers} workers for export, "
@@ -174,8 +180,7 @@ class Exporter:
         self.max_index = {key: count - 1 for key, count in self.message_count.items()}
         self.index_length = {key: max(1, len(str(count - 1))) for key, count in self.message_count.items()}
 
-        # Queues for exceptions and progress
-        self.exception_queue = mp.Queue()
+        # Queue for progress
         progress_queue = mp.Queue()
 
         # Start producer process to generate tasks
@@ -246,7 +251,7 @@ class Exporter:
         Returns:
             None
         """
-        error = RuntimeError(f"Export aborted by user")
+        error = RuntimeError("Export aborted by user")
         self.exception_queue.put((type(error).__name__, str(error)))
 
 
@@ -348,7 +353,6 @@ class Exporter:
             None
         """
         latest_messages = {}
-        latest_ts_seen = 0
         discard_eps_ns = int(discard_eps * 1e9) if discard_eps is not None else None
 
         while True:
@@ -357,13 +361,11 @@ class Exporter:
                 break
 
             topic, msg, _ = res
-            cfg = self.config.get(topic)
-            if not cfg:
+            if topic not in self.config:
                 continue
 
             ts = get_time_from_msg(msg, return_datetime=False)
 
-            latest_ts_seen = max(latest_ts_seen, ts)
             latest_messages[topic] = (ts, msg)
 
             if topic != master_topic:
@@ -423,8 +425,7 @@ class Exporter:
                 break
 
             topic, msg, _ = res
-            cfg = self.config.get(topic)
-            if not cfg:
+            if topic not in self.config:
                 continue
 
             ts = get_time_from_msg(msg, return_datetime=False)

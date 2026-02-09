@@ -3,7 +3,13 @@
 PRIMARY = "#3b82f6"  # lighter blue
 PRIMARY_HOVER = "#2563eb"
 PRIMARY_ACTIVE = "#1d4ed8"
+DANGER = "#b91c1c"
+DANGER_HOVER = "#991b1b"
+DANGER_ACTIVE = "#7f1d1d"
+DANGER_DISABLED_BG = "#fca5a5"
+DANGER_DISABLED_BORDER = "#fecaca"
 TEXT_PRIMARY = "#0f172a"
+TEXT_EMPHASIS = "#1f2937"
 TEXT_SECONDARY = "#475569"
 BORDER = "#cfd6e3"
 BG_MAIN = "#edf1f7"
@@ -18,6 +24,9 @@ BADGE_SELECTED_TEXT = "#1F6516"
 BADGE_UNSELECTED_BG = "#f8fafc"
 BADGE_UNSELECTED_BORDER = "#d1d5db"
 BADGE_UNSELECTED_TEXT = "#6b7280"
+ERROR_BORDER = "#ef4444"
+ERROR_BG = "#fff1f2"
+NEUTRAL_GRAY = "gray"
 
 TOP_BAR_STYLE = (
     f"#topBar {{ background-color: {BG_MAIN}; border-bottom: 1px solid {BORDER}; }}"
@@ -58,10 +67,17 @@ EXPORT_BUTTON_STYLE = (
     f"QPushButton:disabled {{ background-color: {BORDER}; color: {TEXT_SECONDARY}; }}"
 )
 
+CANCEL_BUTTON_STYLE = (
+    f"QPushButton {{ background: {DANGER}; color: {BG_WHITE}; border: none; border-radius: 15px; font-weight: 700; font-size: 15px; }}"
+    f"QPushButton:hover {{ background: {DANGER_HOVER}; }}"
+    f"QPushButton:pressed {{ background: {DANGER_ACTIVE}; }}"
+    f"QPushButton:disabled {{ background: {DANGER_DISABLED_BG}; border-color: {DANGER_DISABLED_BORDER}; color: {BG_WHITE}; }}"
+)
+
 # Text styles
-LEFT_HEADER_STYLE = "font-size: 16px; font-weight: 700; margin-bottom: 6px; color: #0f172a;"
-TS_HEADER_STYLE = "font-size: 16px; font-weight: 700; margin-bottom: 4px; color: #0f172a;"
-TS_TOPIC_STYLE = "font-size: 15px; font-weight: 600; margin-bottom: 12px; color: #1f2937;"
+LEFT_HEADER_STYLE = f"font-size: 16px; font-weight: 700; margin-bottom: 6px; color: {TEXT_PRIMARY};"
+TS_HEADER_STYLE = f"font-size: 16px; font-weight: 700; margin-bottom: 4px; color: {TEXT_PRIMARY};"
+TS_TOPIC_STYLE = f"font-size: 15px; font-weight: 600; margin-bottom: 12px; color: {TEXT_EMPHASIS};"
 EXPORT_BADGE_SELECTED_STYLE = (
     f"border: 2px solid {BADGE_SELECTED_BORDER}; color: {BADGE_SELECTED_TEXT}; background: {BADGE_SELECTED_BG}; "
     "border-radius: 20px; padding: 6px; margin: 0; font-size: 25px; font-weight: 700;"
@@ -70,14 +86,14 @@ EXPORT_BADGE_UNSELECTED_STYLE = (
     f"border: 2px solid {BADGE_UNSELECTED_BORDER}; color: {BADGE_UNSELECTED_TEXT}; background: {BADGE_UNSELECTED_BG}; "
     "border-radius: 20px; padding: 6px; margin: 0; font-size: 25px; font-weight: 700;"
 )
-HELP_TEXT_STYLE = "color: gray; font-style: italic; margin-top: 20px;"
-EMPTY_HINT_STYLE = "color: gray; font-style: italic; font-size: 18px"
-INPUT_ERROR_STYLE = "QLineEdit[error='true'] { border: 1px solid #ef4444; background: #fff1f2; }"
+HELP_TEXT_STYLE = f"color: {NEUTRAL_GRAY}; font-style: italic; margin-top: 20px;"
+EMPTY_HINT_STYLE = f"color: {NEUTRAL_GRAY}; font-style: italic; font-size: 18px"
+INPUT_ERROR_STYLE = f"QLineEdit[error='true'] {{ border: 1px solid {ERROR_BORDER}; background: {ERROR_BG}; }}"
 
 # Progress and feedback styles
 PROGRESS_BAR_STYLE = (
     f"QProgressBar {{ background: {BG_CARD}; border: 1px solid {BORDER};"
-    " border-radius: 6px; padding: 2px; text-align: center; color: #1f2937; }"
+    f" border-radius: 6px; padding: 2px; text-align: center; color: {TEXT_EMPHASIS}; }}"
     f" QProgressBar::chunk {{ background-color: {PRIMARY}; border-radius: 4px; }}"
 )
 
@@ -85,4 +101,10 @@ SUCCESS_BANNER_STYLE = (
     f"#feedbackBanner {{ background: {BADGE_SELECTED_BG}; border: 1px solid {BADGE_SELECTED_BORDER};"
     f" border-radius: 8px; padding: 8px 10px; }} "
     f"#feedbackBanner QLabel {{ color: {BADGE_SELECTED_TEXT}; font-weight: 600; }}"
+)
+
+CANCEL_BANNER_STYLE = (
+    f"#feedbackBanner {{ background: {ERROR_BG}; border: 1px solid {DANGER};"
+    f" border-radius: 8px; padding: 8px 10px; }} "
+    f"#feedbackBanner QLabel {{ color: {DANGER_HOVER}; font-weight: 600; }}"
 )
