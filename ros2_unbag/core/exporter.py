@@ -75,11 +75,13 @@ class Exporter:
         self.export_mode = {t: resolved[2] for t, resolved in self._resolved_formats.items()}
         self.sequential_topics = [t for t, m in self.export_mode.items() if m == ExportMode.SINGLE_FILE]
 
-
+        # Default queue size to control memory usage (backpressure) and prevent OOM
+        queue_size = int(self.global_config.get("queue_size", 50))
+        
         # one queue for parallel topics
-        self.parallel_q = mp.Queue()
+        self.parallel_q = mp.Queue(maxsize=queue_size)
         # one queue per sequential topic
-        self.seq_queues = {t: mp.Queue() for t in self.sequential_topics}
+        self.seq_queues = {t: mp.Queue(maxsize=queue_size) for t in self.sequential_topics}
 
         self.num_workers = max(1, int(mp.cpu_count() * self.global_config["cpu_percentage"] * 0.01))
         self.num_parallel_workers = max(1, self.num_workers - len(self.sequential_topics))
