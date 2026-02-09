@@ -124,6 +124,7 @@ class ExportCommand(CommandExtension):
             return
         if args.uninstall_processor:
             self.uninstall_interactive(routine=False)
+            return
         
         # Handle routine or processor usage
         if args.use_routine is not None:
