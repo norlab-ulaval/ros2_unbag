@@ -29,8 +29,8 @@ Orchestrates the entire export workflow through a 3-column layout:
 - Middle: Per-topic export configuration
 - Right: Global settings and export action
 
-This module also includes worker thread and loading dialog classes for
-asynchronous operations to keep the UI responsive during long-running tasks.
+This module also includes worker thread classes for asynchronous operations
+to keep the UI responsive during long-running tasks.
 """
 
 import json
@@ -41,6 +41,7 @@ from PySide6.QtCore import Q_ARG, Qt
 
 from ros2_unbag.core.bag_reader import BagReader
 from ros2_unbag.core.exporter import Exporter
+from ros2_unbag.core.routines import ExportRoutine
 from ros2_unbag.ui.widgets.topic_list import TopicListWidget
 from ros2_unbag.ui.widgets.topic_settings import TopicSettingsWidget
 from ros2_unbag.ui.widgets.global_settings import GlobalSettingsWidget
@@ -142,6 +143,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.topics_config = {}  # topic -> config dict
         self.current_exporter = None
         self.default_base_dir = Path.cwd()
+        self._export_running = False
 
         self.init_ui()
         self.show_init_screen()
@@ -299,6 +301,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         # 3. Right Column: Global & Summary
         self.global_settings = GlobalSettingsWidget()
         self.global_settings.export_clicked.connect(self.export_data)
+        self.global_settings.cancel_clicked.connect(self.cancel_export)
         self.global_settings.base_dir_changed.connect(self.on_base_dir_changed)
         self.global_settings.setFixedWidth(300)
         global_wrapper = QtWidgets.QWidget()
@@ -344,9 +347,34 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.btn_save_cfg.setEnabled(False)
         self.global_settings.set_base_dir_enabled(False)
 
+    def _set_export_running(self, running: bool):
+        """
+        Toggle UI interactivity during export while keeping cancel available.
+
+        Args: 
+            running (bool): True if export is running, False otherwise.
+
+        Returns:
+            None
+        """
+        self._export_running = running
+        has_bag = self.bag_reader is not None
+
+        self.btn_load_bag.setEnabled(not running)
+        self.btn_load_bag_secondary.setEnabled(not running)
+        self.topic_list.setEnabled(has_bag and not running)
+        self.topic_settings.setEnabled(has_bag and not running)
+        self.btn_load_cfg.setEnabled(has_bag and not running)
+        self.btn_save_cfg.setEnabled(has_bag and not running)
+
+        self.global_settings.setEnabled(has_bag)
+        self.global_settings.set_controls_enabled(not running)
+        self.global_settings.set_base_dir_enabled(has_bag and not running)
+        self.global_settings.set_export_running(running)
+
     def load_bag(self):
         """
-        Prompt user to select a bag file, reset state, show loading dialog, and start background reader thread.
+        Prompt user to select a bag file, reset state, and start background reader thread.
 
         Args:
             None
@@ -366,7 +394,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         
         # Reset state
         self.topics_config = {}
-        self.topic_settings.default_folder = self.bag_path.parent
+        self.topic_settings.default_folder = self.default_base_dir
         
         # Show loading in status bar
         self._show_status_progress("Loading bag file...", indeterminate=True)
@@ -424,6 +452,8 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.btn_load_cfg.setEnabled(True)
         self.btn_save_cfg.setEnabled(True)
         self.global_settings.set_base_dir_enabled(True)
+        self.global_settings.set_controls_enabled(True)
+        self.global_settings.set_export_running(False)
         
         self.status_bar.showMessage(f"Loaded {self.bag_path.name}")
         self.update_summary()
@@ -564,13 +594,15 @@ class UnbagApp(QtWidgets.QMainWindow):
             return
 
         # Persist current topic settings before switching
-        if self.topic_settings.current_topic and self.topic_settings.current_topic in self.topics_config:
-            self.topics_config[self.topic_settings.current_topic].update(self.topic_settings.get_config())
+        if self.topic_settings.current_topic:
+            current_topic = self.topic_settings.current_topic
+            self.topics_config.setdefault(current_topic, {})
+            self.topics_config[current_topic].update(self.topic_settings.get_config())
 
         # Get or create config
         if topic not in self.topics_config:
             self.topics_config[topic] = {
-                "path": str(self.bag_path.parent),
+                "path": str(self.default_base_dir),
                 "subfolder": "%name",
                 "naming": "%name",
                 "format": ""  # Will default in widget
@@ -607,9 +639,6 @@ class UnbagApp(QtWidgets.QMainWindow):
         Returns:
             None
         """
-        # Just update summary for now.
-        # We could also auto-select the topic for editing if checked?
-        # For now, keep selection and checking separate.
         self.update_summary()
         if self.topic_settings.current_topic == topic:
             self.topic_settings.set_export_state(is_checked)
@@ -640,7 +669,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         # Count checked items in topic list
         selected_count = 0
         selected_topics = []
-        for topic, item in self.topic_list.topics.items():
+        for topic in self.topic_list.topics:
             if self.topic_list.is_checked(topic):
                 selected_count += 1
                 selected_topics.append(topic)
@@ -670,10 +699,17 @@ class UnbagApp(QtWidgets.QMainWindow):
         # Gather config for all SELECTED (checked) topics
         final_config = {}
         errors = []
+        selected_topics = [
+            topic for topic in self.topic_list.topics
+            if self.topic_list.is_checked(topic)
+        ]
+        if not selected_topics:
+            raise ValueError("Select at least one topic to export.")
         
         # First, ensure current settings in middle column are saved
         current_topic = self.topic_settings.current_topic
         if current_topic:
+            self.topics_config.setdefault(current_topic, {})
             self.topics_config[current_topic].update(self.topic_settings.get_config())
             self.topic_settings.validate_inputs()
 
@@ -682,30 +718,26 @@ class UnbagApp(QtWidgets.QMainWindow):
         # Validate global config (master topic)
         if "resample_config" in global_cfg:
             master_topic = global_cfg["resample_config"].get("master_topic")
-            # Build list of selected topics
-            selected_topics = [
-                topic for topic, item in self.topic_list.topics.items()
-                if self.topic_list.is_checked(topic)
-            ]
             if not master_topic or master_topic not in selected_topics:
                 raise ValueError("Resampling enabled but no Master Topic selected among exported topics.")
 
-        for topic, item in self.topic_list.topics.items():
+        for topic in self.topic_list.topics:
             if self.topic_list.is_checked(topic):
                 # Get config, use defaults if not visited
                 cfg = self.topics_config.get(topic, {}).copy()
                 
                 if not cfg.get("format"):
-                     # Find type
+                    # Find type
                     t_type = next((k for k, v in self.bag_reader.get_topics().items() if topic in v), None)
                     # Default format
-                    from ros2_unbag.core.routines import ExportRoutine
                     formats = ExportRoutine.get_formats(t_type)
                     if formats:
                         cfg["format"] = formats[0]
                         # Also set default path/naming if empty
-                        if "path" not in cfg: cfg["path"] = str(self.bag_path.parent)
-                        if "naming" not in cfg: cfg["naming"] = "%name"
+                        if "path" not in cfg:
+                            cfg["path"] = str(self.default_base_dir)
+                        if "naming" not in cfg:
+                            cfg["naming"] = "%name"
                 if "subfolder" not in cfg:
                     cfg["subfolder"] = "%name"
                 
@@ -727,7 +759,7 @@ class UnbagApp(QtWidgets.QMainWindow):
 
     def export_data(self):
         """
-        Initiate the export process: validate config, show progress dialog, start background export thread.
+        Initiate the export process: validate config, show progress indicators, and start background export thread.
 
         Args:
             None
@@ -742,7 +774,7 @@ class UnbagApp(QtWidgets.QMainWindow):
             return
 
         self.global_settings.hide_feedback()
-        self.setEnabled(False)
+        self._set_export_running(True)
         self._show_status_progress("Exporting...", indeterminate=False)
 
         self.worker = WorkerThread(self.run_export, self.bag_reader, config, global_config)
@@ -750,12 +782,28 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.worker.error.connect(self.handle_export_error)
         self.worker.start()
 
+    def cancel_export(self):
+        """
+        Request cancellation for the currently running export.
+
+        Args: 
+            None
+
+        Returns:
+            None
+        """
+        if not self._export_running:
+            return
+        self.status_bar.showMessage("Cancelling export...")
+        if self.current_exporter is not None:
+            self.current_exporter.abort_export()
+
     def run_export(self, bag_reader, config, global_config):
         """
         Execute the export process in a background thread with progress updates.
         
         Creates an Exporter instance with a progress callback that updates the
-        loading dialog, then runs the export.
+        status/progress widgets, then runs the export.
 
         Args:
             bag_reader: BagReader instance.
@@ -766,7 +814,10 @@ class UnbagApp(QtWidgets.QMainWindow):
             None
         """
         def progress(current, total):
-            value = int((current / total) * 100)
+            if total <= 0:
+                value = 0
+            else:
+                value = int((current / total) * 100)
             QtCore.QMetaObject.invokeMethod(
                 self.status_progress, "setValue",
                 QtCore.Qt.ConnectionType.QueuedConnection,
@@ -785,6 +836,11 @@ class UnbagApp(QtWidgets.QMainWindow):
                 )
         
         self.current_exporter = Exporter(bag_reader, config, global_config, progress_callback=progress)
+        QtCore.QMetaObject.invokeMethod(
+            self.global_settings.btn_cancel, "setEnabled",
+            QtCore.Qt.ConnectionType.QueuedConnection,
+            Q_ARG(bool, True)
+        )
         self.current_exporter.run()
 
     def on_export_finished(self, _):
@@ -797,8 +853,9 @@ class UnbagApp(QtWidgets.QMainWindow):
         Returns:
             None
         """
+        self.current_exporter = None
         self._hide_status_progress("Export complete")
-        self.setEnabled(True)
+        self._set_export_running(False)
         self.global_settings.show_feedback("Export complete.")
 
     def handle_export_error(self, e):
@@ -811,8 +868,15 @@ class UnbagApp(QtWidgets.QMainWindow):
         Returns:
             None
         """
+        self.current_exporter = None
+        self._set_export_running(False)
+
+        if "Export aborted by user" in str(e):
+            self._hide_status_progress("Export canceled")
+            self.global_settings.show_feedback("Export canceled.", feedback_type="cancel")
+            return
+
         self._hide_status_progress("Export failed")
-        self.setEnabled(True)
         QtWidgets.QMessageBox.critical(self, "Export Error", str(e))
 
     def save_config_file(self):
@@ -840,10 +904,13 @@ class UnbagApp(QtWidgets.QMainWindow):
             if current:
                 self.topics_config[current].update(self.topic_settings.get_config())
                 
-            full_config = self.topics_config.copy()
+            full_config = {
+                topic: cfg for topic, cfg in self.topics_config.items()
+                if isinstance(cfg, dict)
+            }
             full_config["__global__"] = self.global_settings.get_config()
             
-            with open(file_path, "w") as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(full_config, f, indent=2)
             
             self.status_bar.showMessage(f"Saved config to {file_path}")
@@ -869,21 +936,24 @@ class UnbagApp(QtWidgets.QMainWindow):
             return
         
         try:
-            with open(file_path, "r") as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
             
             if "__global__" in config:
                 self.global_settings.set_config(config.pop("__global__"))
             
-            self.topics_config = config
+            self.topics_config = {
+                topic: cfg for topic, cfg in config.items()
+                if isinstance(cfg, dict)
+            }
 
             # Apply selection state based on loaded config
             missing_topics = []
-            for topic, item in self.topic_list.topics.items():
+            for topic in self.topic_list.topics:
                 # block signals to avoid redundant updates while we toggle many items
                 self.topic_list.set_checked(topic, topic in self.topics_config, block_signals=True)
             for topic in self.topics_config.keys():
-                if topic not in self.topic_list.topics and topic != "__global__":
+                if topic not in self.topic_list.topics:
                     missing_topics.append(topic)
             self.update_summary()
             

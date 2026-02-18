@@ -32,7 +32,12 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
-from ros2_unbag.ui.styles import EXPORT_BUTTON_STYLE, SUCCESS_BANNER_STYLE
+from ros2_unbag.ui.styles import (
+    CANCEL_BANNER_STYLE,
+    CANCEL_BUTTON_STYLE,
+    EXPORT_BUTTON_STYLE,
+    SUCCESS_BANNER_STYLE,
+)
 
 __all__ = ["GlobalSettingsWidget"]
 
@@ -57,6 +62,7 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
     """
     
     export_clicked = QtCore.Signal()
+    cancel_clicked = QtCore.Signal()
     base_dir_changed = QtCore.Signal(str)
 
     def __init__(self, parent=None):
@@ -72,6 +78,8 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         super().__init__(parent)
         self.selected_topics = []
         self.base_dir = Path.cwd()
+        self._has_selection = False
+        self._is_export_running = False
         self.init_ui()
 
     def init_ui(self):
@@ -88,8 +96,8 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         layout.setAlignment(QtCore.Qt.AlignTop)
 
         # Global Settings Group
-        gb_settings = QtWidgets.QGroupBox("Global Settings")
-        form_layout = QtWidgets.QFormLayout(gb_settings)
+        self.gb_settings = QtWidgets.QGroupBox("Global Settings")
+        form_layout = QtWidgets.QFormLayout(self.gb_settings)
 
         # CPU Usage
         self.cpu_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
@@ -151,12 +159,12 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         master_label.setToolTip("Select the master topic used as the timing reference when resampling.")
         form_layout.addRow(master_label, self.master_combo)
 
-        layout.addWidget(gb_settings)
+        layout.addWidget(self.gb_settings)
 
         # Base Directory Group
-        gb_base = QtWidgets.QGroupBox("Base Directory")
-        gb_base.setToolTip("Changes the base directory for all topic exports at once.")
-        base_layout = QtWidgets.QVBoxLayout(gb_base)
+        self.gb_base = QtWidgets.QGroupBox("Base Directory")
+        self.gb_base.setToolTip("Changes the base directory for all topic exports at once.")
+        base_layout = QtWidgets.QVBoxLayout(self.gb_base)
         base_layout.setSpacing(6)
         base_layout.setContentsMargins(10, 10, 10, 10)
         self.base_dir_label = QtWidgets.QLabel(str(self.base_dir))
@@ -175,15 +183,15 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #475569;")
         base_layout.addWidget(desc)
-        layout.addWidget(gb_base)
+        layout.addWidget(self.gb_base)
 
         # Summary Group
-        gb_summary = QtWidgets.QGroupBox("Summary")
-        gb_summary.setToolTip("Shows how many topics are selected for export out of the total loaded.")
-        self.summary_layout = QtWidgets.QVBoxLayout(gb_summary)
+        self.gb_summary = QtWidgets.QGroupBox("Summary")
+        self.gb_summary.setToolTip("Shows how many topics are selected for export out of the total loaded.")
+        self.summary_layout = QtWidgets.QVBoxLayout(self.gb_summary)
         self.summary_label = QtWidgets.QLabel("No bag loaded.")
         self.summary_layout.addWidget(self.summary_label)
-        layout.addWidget(gb_summary)
+        layout.addWidget(self.gb_summary)
 
         layout.addStretch()
 
@@ -220,7 +228,15 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         self.btn_export.setEnabled(False)
         layout.addWidget(self.btn_export)
 
-    def show_feedback(self, message: str, duration_ms: int = 3500):
+        # Cancel Button (initially hidden, shown when export is running)
+        self.btn_cancel = QtWidgets.QPushButton("Cancel Export")
+        self.btn_cancel.setMinimumHeight(56)
+        self.btn_cancel.setStyleSheet(CANCEL_BUTTON_STYLE)
+        self.btn_cancel.clicked.connect(self.cancel_clicked)
+        self.btn_cancel.setVisible(False)
+        layout.addWidget(self.btn_cancel)
+
+    def show_feedback(self, message: str, duration_ms: int = 3500, feedback_type: str = "success"):
         """
         Display a transient banner message above the export button.
 
@@ -236,6 +252,10 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         Returns:
             None
         """
+        if feedback_type == "cancel":
+            self.feedback_banner.setStyleSheet(CANCEL_BANNER_STYLE)
+        else:
+            self.feedback_banner.setStyleSheet(SUCCESS_BANNER_STYLE)
         self.feedback_label.setText(message)
         self.feedback_banner.setVisible(True)
         self.feedback_timer.stop()
@@ -316,13 +336,57 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
             f"Selected Topics: {selected_count}\n"
             f"Total Topics: {total_count}"
         )
-        self.btn_export.setEnabled(selected_count > 0)
-        if selected_count > 0:
-            self.btn_export.setToolTip("")
+        self._has_selection = selected_count > 0
+        if not self._is_export_running:
+            self.btn_export.setEnabled(self._has_selection)
+        if self._has_selection:
+            self.btn_export.setToolTip("Start unbagging")
         else:
             self.btn_export.setToolTip("Select at least one topic to unbag.")
 
+    def set_controls_enabled(self, enabled: bool):
+        """
+        Enable or disable global configuration controls while keeping action buttons available.
+
+        Args: 
+            enabled: If True, enable configuration controls; if False, disable them.
+
+        Returns:
+            None
+        """
+        self.gb_settings.setEnabled(enabled)
+        self.gb_base.setEnabled(enabled)
+        self.gb_summary.setEnabled(enabled)
+        self.feedback_close.setEnabled(enabled)
+
+    def set_export_running(self, running: bool):
+        """
+        Toggle action buttons between export and cancel state.
+
+        Args:
+            running: If True, export is running; if False, export is not running.
+
+        Returns:
+            None
+        """
+        self._is_export_running = running
+        self.btn_export.setVisible(not running)
+        self.btn_cancel.setVisible(running)
+        if running:
+            self.btn_cancel.setEnabled(False)
+        else:
+            self.btn_export.setEnabled(self._has_selection)
+
     def _choose_base_dir(self):
+        """
+        Open a directory selection dialog to choose the base directory.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         start_dir = str(self.base_dir) if self.base_dir else str(Path.cwd())
         new_dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Base Directory", start_dir)
         if new_dir:
@@ -330,12 +394,30 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
             self.base_dir_changed.emit(new_dir)
 
     def set_base_dir(self, path: str | Path):
+        """
+        Update the base directory path and refresh the label display.
+
+        Args:
+            path: New base directory path as a string or Path object.
+        
+        Returns:
+            None
+        """
         self.base_dir = Path(path)
         self.base_dir_full = str(self.base_dir)
         self.base_dir_label.setToolTip(self.base_dir_full)
         self._update_base_dir_label()
 
     def set_base_dir_enabled(self, enabled: bool):
+        """
+        Enable or disable the base directory selection controls.
+
+        Args:
+            enabled: If True, enable the base directory controls; if False, disable them.
+
+        Returns:
+            None
+        """
         self.btn_base_dir.setEnabled(enabled)
 
     def get_config(self):
@@ -356,9 +438,13 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         }
         assoc = self.assoc_combo.currentText()
         if assoc != "no resampling":
-            try:
-                eps = float(self.eps_edit.text())
-            except ValueError:
+            eps_text = self.eps_edit.text().strip()
+            if eps_text:
+                try:
+                    eps = float(eps_text)
+                except (TypeError, ValueError):
+                    eps = None
+            else:
                 eps = None
             
             master_topic = self.master_combo.currentText().strip()
@@ -382,31 +468,43 @@ class GlobalSettingsWidget(QtWidgets.QWidget):
         Returns:
             None
         """
-        if "cpu_percentage" in config:
-            self.cpu_slider.setValue(config["cpu_percentage"])
+        if not isinstance(config, dict):
+            return
+
+        cpu_percentage = config.get("cpu_percentage")
+        if cpu_percentage is not None:
+            try:
+                cpu_value = float(cpu_percentage)
+            except (TypeError, ValueError):
+                cpu_value = float(self.cpu_spin.value())
+            cpu_value = max(0.0, min(100.0, cpu_value))
+            self.cpu_spin.setValue(cpu_value)
+            self.cpu_slider.blockSignals(True)
+            self.cpu_slider.setValue(int(round(cpu_value)))
+            self.cpu_slider.blockSignals(False)
         
         rcfg = config.get("resample_config")
-        if rcfg:
+        if isinstance(rcfg, dict):
             assoc = rcfg.get("association", "no resampling")
             idx = self.assoc_combo.findText(assoc)
             if idx >= 0:
                 self.assoc_combo.setCurrentIndex(idx)
-            if "discard_eps" in rcfg:
-                self.eps_edit.setText(str(rcfg["discard_eps"]))
+            else:
+                assoc = "no resampling"
+                self.assoc_combo.setCurrentIndex(0)
+            discard_eps = rcfg.get("discard_eps")
+            if discard_eps is None:
+                self.eps_edit.clear()
+            else:
+                self.eps_edit.setText(str(discard_eps))
+            self._refresh_master_combo(resampling_enabled=assoc != "no resampling")
             if "master_topic" in rcfg and rcfg["master_topic"]:
-                # refresh master list in case set_config is called before update_summary
-                self._refresh_master_combo(resampling_enabled=assoc != "no resampling")
                 midx = self.master_combo.findText(rcfg["master_topic"])
                 if midx >= 0:
                     self.master_combo.setCurrentIndex(midx)
         else:
             self.assoc_combo.setCurrentIndex(0)
-        if "cpu_percentage" in config:
-            # ensure slider reflects the new spin value without snapping the spin itself
-            self.cpu_spin.setValue(float(config["cpu_percentage"]))
-            self.cpu_slider.blockSignals(True)
-            self.cpu_slider.setValue(int(round(config["cpu_percentage"])))
-            self.cpu_slider.blockSignals(False)
+            self.eps_edit.clear()
 
     def resizeEvent(self, event):
         """
