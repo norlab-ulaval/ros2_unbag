@@ -42,6 +42,7 @@ from PySide6.QtCore import Q_ARG, Qt
 from ros2_unbag.core.bag_reader import BagReader
 from ros2_unbag.core.exporter import Exporter
 from ros2_unbag.core.routines import ExportRoutine
+from ros2_unbag.core.utils.bag_utils import resolve_bag_path
 from ros2_unbag.ui.widgets.topic_list import TopicListWidget
 from ros2_unbag.ui.widgets.topic_settings import TopicSettingsWidget
 from ros2_unbag.ui.widgets.global_settings import GlobalSettingsWidget
@@ -212,7 +213,7 @@ class UnbagApp(QtWidgets.QMainWindow):
         left_layout.addWidget(left_header)
 
         # Bag Loading Area
-        bag_group = QtWidgets.QGroupBox("Bag File")
+        bag_group = QtWidgets.QGroupBox("Bag Source")
         bag_layout = QtWidgets.QVBoxLayout(bag_group)
         self.lbl_bag_name = QtWidgets.QLabel("No bag loaded")
         self.lbl_bag_name.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
@@ -374,7 +375,7 @@ class UnbagApp(QtWidgets.QMainWindow):
 
     def load_bag(self):
         """
-        Prompt user to select a bag file, reset state, and start background reader thread.
+        Prompt user to select a bag folder, reset state, and start background reader thread.
 
         Args:
             None
@@ -382,14 +383,22 @@ class UnbagApp(QtWidgets.QMainWindow):
         Returns:
             None
         """
-        bag_path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Open Bag File", "", "Bag Files (*.db3 *.mcap)")
+        bag_path = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Open Bag Folder", str(self.default_base_dir)
+        )
+
         if not bag_path:
             return
 
-        self.bag_path = Path(bag_path)
+        try:
+            resolved_bag_path, _ = resolve_bag_path(bag_path)
+        except (FileNotFoundError, ValueError) as e:
+            QtWidgets.QMessageBox.critical(self, "Invalid Bag Path", str(e))
+            return
+
+        self.bag_path = Path(resolved_bag_path)
         self.lbl_bag_name.setText(self.bag_path.name)
-        self.default_base_dir = self.bag_path.parent
+        self.default_base_dir = self.bag_path
         self.global_settings.set_base_dir(self.default_base_dir)
         
         # Reset state
@@ -397,9 +406,9 @@ class UnbagApp(QtWidgets.QMainWindow):
         self.topic_settings.default_folder = self.default_base_dir
         
         # Show loading in status bar
-        self._show_status_progress("Loading bag file...", indeterminate=True)
+        self._show_status_progress("Loading bag...", indeterminate=True)
 
-        self.worker = WorkerThread(lambda p: BagReader(p), bag_path)
+        self.worker = WorkerThread(lambda p: BagReader(p), str(self.bag_path))
         self.worker.finished.connect(self.on_bag_loaded)
         self.worker.error.connect(self.handle_bag_error)
         self.worker.start()
