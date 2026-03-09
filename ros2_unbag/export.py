@@ -33,6 +33,7 @@ from tqdm import tqdm
 from ros2_unbag.core.bag_reader import BagReader
 from ros2_unbag.core.exporter import Exporter
 from ros2_unbag.core.routines.base import ExportRoutine, ExportMode
+from ros2_unbag.core.utils.bag_utils import resolve_bag_path
 import ros2_unbag.core.processors
 import ros2_unbag.core.routines
 from ros2_unbag.ui.main_window import UnbagApp
@@ -57,7 +58,7 @@ class ExportCommand(CommandExtension):
         Returns:
             None
         """
-        parser.add_argument("bag", nargs="?", help="Path to ROS2 bag file")
+        parser.add_argument("bag", nargs="?", help="Path to ROS2 bag file (.db3/.mcap) or split bag folder")
         parser.add_argument(
             "--export", "-e", action="append",
             help="Export spec: /topic:format[:subdir]. Can be repeated.")
@@ -173,11 +174,13 @@ class ExportCommand(CommandExtension):
         """
         if not args.bag:
             sys.exit("Error: No bag file provided. Use 'ros2 unbag <bag_path>' or --gui for GUI mode.")
-    
-        if not os.path.exists(args.bag):
-            sys.exit(f"Error: Bag file '{args.bag}' not found.")
 
-        bag_reader = BagReader(args.bag)
+        try:
+            bag_path, _ = resolve_bag_path(args.bag)
+        except (FileNotFoundError, ValueError) as e:
+            sys.exit(f"Error: {e}")
+
+        bag_reader = BagReader(bag_path)
         if args.config:
             with open(args.config, "r") as f:
                 config = json.load(f)

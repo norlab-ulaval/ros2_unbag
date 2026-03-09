@@ -21,7 +21,6 @@
 # SOFTWARE.
 
 from collections import defaultdict, deque
-import os
 
 from tf2_msgs.msg import TFMessage
 
@@ -33,6 +32,7 @@ from rosbag2_py import (
     StorageOptions,
 )
 from rosidl_runtime_py.utilities import get_message
+from ros2_unbag.core.utils.bag_utils import resolve_bag_path
 
 
 class BagReader:
@@ -48,33 +48,12 @@ class BagReader:
         Returns:
             None
         """
-        self.bag_path = bag_path
+        self.bag_path, self.storage_id = resolve_bag_path(bag_path)
         self.reader = SequentialReader()
         self.topic_types = {}
         self.metadata = None
         self._tf_queue = deque()    # Queue for TF messages - used to handle transforms
         self._open_bag()
-
-    def _detect_storage_id(self):
-        """
-        Determine storage format ('sqlite3' or 'mcap') from bag file extension.
-
-        Args:
-            None
-
-        Returns:
-            str: Storage format identifier.
-
-        Raises:
-            ValueError: If extension is unsupported.
-        """
-        ext = os.path.splitext(self.bag_path)[1].lower()
-        if ext == '.db3':
-            return 'sqlite3'
-        elif ext == '.mcap':
-            return 'mcap'
-        else:
-            raise ValueError(f"Unsupported bag extension: {ext}")
 
     def _open_bag(self):
         """
@@ -90,9 +69,8 @@ class BagReader:
             RuntimeError: If bag cannot be opened.
         """
         try:
-            storage_id = self._detect_storage_id()
             storage_options = StorageOptions(uri=self.bag_path,
-                                             storage_id=storage_id)
+                                             storage_id=self.storage_id)
             converter_options = ConverterOptions(
                 input_serialization_format='cdr',
                 output_serialization_format='cdr')
@@ -154,9 +132,8 @@ class BagReader:
         """
         try:
             reader = SequentialReader()
-            storage_id = self._detect_storage_id()
             storage_options = StorageOptions(uri=self.bag_path,
-                                             storage_id=storage_id)
+                                             storage_id=self.storage_id)
             converter_options = ConverterOptions(
                 input_serialization_format='cdr',
                 output_serialization_format='cdr')
