@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/github/license/ika-rwth-aachen/ros2_unbag"/>
-  <a href="https://github.com/ika-rwth-aachen/ros2_unbag/actions/workflows/build_docker.yml"><img src="https://github.com/ika-rwth-aachen/ros2_unbag/actions/workflows/build_docker.yml/badge.svg"/></a>
+  <a href="https://github.com/ika-rwth-aachen/ros2_unbag/actions/workflows/docker-ros.yml"><img src="https://github.com/ika-rwth-aachen/ros2_unbag/actions/workflows/docker-ros.yml/badge.svg"/></a>
 </p>
 
 *ros2 unbag* is a powerful ROS 2 tool featuring an **intuitive GUI** and **flexible CLI** for extracting topics from `.db3` or `.mcap` bag files into formats like CSV, JSON, PCD, images, and more.

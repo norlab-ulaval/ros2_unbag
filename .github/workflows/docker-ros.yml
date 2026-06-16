@@ -7,3 +7,4 @@ jobs:
         with:
           base-image: rwthika/ros2:jazzy
           command: ros2 unbag
+          enable-industrial-ci: true
