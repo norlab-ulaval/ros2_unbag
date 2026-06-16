@@ -67,6 +67,10 @@ QScrollArea {
   background: white;
 }
 
+QScrollArea > QWidget > QWidget {
+  background: white;
+}
+
 QTreeWidget {
   background: white;
   border: 1px solid #cfd6e3;
@@ -105,6 +109,15 @@ QPushButton#exportButton:hover {
   background-color: #2563eb;
 }
 
+QPushButton#exportButton:pressed {
+  background-color: #1d4ed8;
+}
+
+QPushButton#exportButton:disabled {
+  background-color: #cfd6e3;
+  color: #475569;
+}
+
 QPushButton#cancelButton {
   background: #b91c1c;
   color: white;
@@ -117,6 +130,16 @@ QPushButton#cancelButton {
 
 QPushButton#cancelButton:hover {
   background: #991b1b;
+}
+
+QPushButton#cancelButton:pressed {
+  background: #7f1d1d;
+}
+
+QPushButton#cancelButton:disabled {
+  background: #fca5a5;
+  border-color: #fecaca;
+  color: white;
 }
 
 QProgressBar {
@@ -174,6 +197,29 @@ QFrame#feedbackBanner QLabel {
 
 QFrame#feedbackBanner[feedbackType="cancel"] QLabel {
   color: #991b1b;
+}
+
+QToolButton#feedbackCloseButton {
+  border: none;
+  padding: 2px;
+  font-weight: 700;
+  color: #475569;
+}
+
+QToolButton#feedbackCloseButton:hover {
+  color: #0f172a;
+}
+
+QLabel#helpTextLabel {
+  color: gray;
+  font-style: italic;
+  margin-top: 20px;
+}
+
+QLabel#placeholderHintLabel {
+  color: gray;
+  font-style: italic;
+  font-size: 18px;
 }
 
 QLineEdit[error="true"] {

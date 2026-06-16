@@ -204,6 +204,8 @@ void ProcessorChainWidget::setProcessorDefinitions(const QJsonArray &definitions
   processorDefinitions_ = definitions;
   const bool hasDefinitions = !processorDefinitions_.isEmpty();
   addButton_->setEnabled(hasDefinitions);
+  emptyHint_->setText(hasDefinitions ? QStringLiteral("No processors configured.")
+                                     : QStringLiteral("No processors available."));
   if (!hasDefinitions) {
     setChain(QJsonArray{});
   }

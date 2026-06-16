@@ -50,6 +50,9 @@
 #include <QMap>
 #include <QMessageBox>
 #include <QMovie>
+#include <QBrush>
+#include <QColor>
+#include <QFont>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QScrollArea>
@@ -127,6 +130,17 @@ QString elideTopicPath(const QString &path, const QLabel *label) {
   // Match the old GUI behavior by preserving both ends of long paths.
   const QFontMetrics metrics = label->fontMetrics();
   return metrics.elidedText(path, Qt::ElideMiddle, qMax(40, label->width()));
+}
+
+void applyCheckedStyle(QTreeWidgetItem *item, bool checked) {
+  if (item == nullptr) {
+    return;
+  }
+  const QBrush checkedBrush(QColor(QStringLiteral("#e9fcdc")));
+  const QBrush defaultBrush;
+  for (int column = 0; column < item->columnCount(); ++column) {
+    item->setBackground(column, checked ? checkedBrush : defaultBrush);
+  }
 }
 
 }  // namespace
@@ -344,6 +358,7 @@ void MainWindow::buildUi() {
   settingsLayout->addWidget(placeholderLabel_, 0, Qt::AlignCenter);
 
   placeholderHintLabel_ = new QLabel(QStringLiteral("Please select topic to configure export"), settingsPage_);
+  placeholderHintLabel_->setObjectName(QStringLiteral("placeholderHintLabel"));
   placeholderHintLabel_->setAlignment(Qt::AlignCenter);
   settingsLayout->addWidget(placeholderHintLabel_, 0, Qt::AlignCenter);
 
@@ -356,6 +371,7 @@ void MainWindow::buildUi() {
                      "  %master_timestamp (master topic timestamp when resampling)\n"
                      "  %Y-%m-%d_%H-%M-%S (timestamp)"),
       settingsPage_);
+  helpTextLabel_->setObjectName(QStringLiteral("helpTextLabel"));
   settingsLayout->addWidget(helpTextLabel_);
 
   middleStack_->addWidget(settingsPage_);
@@ -370,8 +386,13 @@ void MainWindow::buildUi() {
   cpuSlider_ = new QSlider(Qt::Horizontal, settingsGroup_);
   cpuSlider_->setRange(0, 100);
   cpuSlider_->setValue(80);
+  cpuSlider_->setSingleStep(10);
+  cpuSlider_->setPageStep(10);
+  cpuSlider_->setTickInterval(10);
+  cpuSlider_->setTickPosition(QSlider::TicksBelow);
   cpuSpin_ = new QDoubleSpinBox(settingsGroup_);
   cpuSpin_->setRange(0.0, 100.0);
+  cpuSpin_->setSingleStep(1.0);
   cpuSpin_->setDecimals(1);
   cpuSpin_->setValue(80.0);
   auto *cpuRowWidget = new QWidget(settingsGroup_);
@@ -379,23 +400,32 @@ void MainWindow::buildUi() {
   cpuRow->setContentsMargins(0, 0, 0, 0);
   cpuRow->addWidget(cpuSlider_);
   cpuRow->addWidget(cpuSpin_);
-  settingsForm->addRow(QStringLiteral("CPU Usage %"), cpuRowWidget);
+  auto *cpuLabel = new QLabel(QStringLiteral("CPU Usage %"), settingsGroup_);
+  cpuLabel->setToolTip(QStringLiteral("Set the maximum CPU percentage allowed for export workers."));
+  settingsForm->addRow(cpuLabel, cpuRowWidget);
 
   assocCombo_ = new QComboBox(settingsGroup_);
   assocCombo_->addItems({QStringLiteral("no resampling"), QStringLiteral("last"), QStringLiteral("nearest")});
-  settingsForm->addRow(QStringLiteral("Association"), assocCombo_);
+  auto *assocLabel = new QLabel(QStringLiteral("Association"), settingsGroup_);
+  assocLabel->setToolTip(QStringLiteral("Choose how to align messages to a master timeline, or disable resampling."));
+  settingsForm->addRow(assocLabel, assocCombo_);
 
   epsEdit_ = new QLineEdit(settingsGroup_);
   epsEdit_->setEnabled(false);
   epsEdit_->setPlaceholderText(QStringLiteral("e.g. 0.5"));
-  settingsForm->addRow(QStringLiteral("Discard Eps (s)"), epsEdit_);
+  auto *epsLabel = new QLabel(QStringLiteral("Discard Eps (s)"), settingsGroup_);
+  epsLabel->setToolTip(QStringLiteral("Discard messages with timestamp offsets larger than this value in seconds."));
+  settingsForm->addRow(epsLabel, epsEdit_);
 
   masterCombo_ = new QComboBox(settingsGroup_);
   masterCombo_->setEnabled(false);
-  settingsForm->addRow(QStringLiteral("Master Topic"), masterCombo_);
+  auto *masterLabel = new QLabel(QStringLiteral("Master Topic"), settingsGroup_);
+  masterLabel->setToolTip(QStringLiteral("Select the master topic used as the timing reference when resampling."));
+  settingsForm->addRow(masterLabel, masterCombo_);
   globalLayout->addWidget(settingsGroup_);
 
   baseGroup_ = new QGroupBox(QStringLiteral("Base Directory"), globalWrapper);
+  baseGroup_->setToolTip(QStringLiteral("Changes the base directory for all topic exports at once."));
   auto *baseLayout = new QVBoxLayout(baseGroup_);
   auto *baseRow = new QHBoxLayout();
   baseDirLabel_ = new QLabel(QDir::currentPath(), baseGroup_);
@@ -410,6 +440,7 @@ void MainWindow::buildUi() {
   globalLayout->addWidget(baseGroup_);
 
   summaryGroup_ = new QGroupBox(QStringLiteral("Summary"), globalWrapper);
+  summaryGroup_->setToolTip(QStringLiteral("Shows how many topics are selected for export out of the total loaded."));
   auto *summaryLayout = new QVBoxLayout(summaryGroup_);
   summaryLabel_ = new QLabel(QStringLiteral("No bag loaded."), summaryGroup_);
   summaryLayout->addWidget(summaryLabel_);
@@ -425,6 +456,7 @@ void MainWindow::buildUi() {
   feedbackLayout->addWidget(feedbackLabel_);
   feedbackLayout->addStretch();
   feedbackCloseButton_ = new QToolButton(feedbackBanner_);
+  feedbackCloseButton_->setObjectName(QStringLiteral("feedbackCloseButton"));
   feedbackCloseButton_->setText(QStringLiteral("x"));
   feedbackLayout->addWidget(feedbackCloseButton_);
   globalLayout->addWidget(feedbackBanner_);
@@ -434,6 +466,8 @@ void MainWindow::buildUi() {
   exportButton_ = new QPushButton(QStringLiteral("Unbag"), globalWrapper);
   exportButton_->setObjectName(QStringLiteral("exportButton"));
   exportButton_->setMinimumHeight(56);
+  exportButton_->setEnabled(false);
+  exportButton_->setToolTip(QStringLiteral("Select at least one topic to unbag."));
   globalLayout->addWidget(exportButton_);
 
   cancelButton_ = new QPushButton(QStringLiteral("Cancel Export"), globalWrapper);
@@ -507,13 +541,19 @@ void MainWindow::buildUi() {
     }
   });
   connect(cpuSlider_, &QSlider::valueChanged, this, [this](int value) {
+    const int snapped = qRound(value / 10.0) * 10;
+    if (snapped != value) {
+      cpuSlider_->blockSignals(true);
+      cpuSlider_->setValue(snapped);
+      cpuSlider_->blockSignals(false);
+    }
     cpuSpin_->blockSignals(true);
-    cpuSpin_->setValue(double(value));
+    cpuSpin_->setValue(double(snapped));
     cpuSpin_->blockSignals(false);
   });
   connect(cpuSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double value) {
     cpuSlider_->blockSignals(true);
-    cpuSlider_->setValue(int(value));
+    cpuSlider_->setValue(int(qRound(value)));
     cpuSlider_->blockSignals(false);
   });
   connect(assocCombo_, &QComboBox::currentTextChanged, this, [this](const QString &text) {
@@ -626,6 +666,7 @@ void MainWindow::handleTopicChanged(QTreeWidgetItem *item, int column) {
   if (updatingTree_ || item == nullptr || item->parent() == nullptr || column != 0) {
     return;
   }
+  applyCheckedStyle(item, item->checkState(0) == Qt::Checked);
   updateSummary();
   if (currentTopic_ == item->data(0, Qt::UserRole).toString()) {
     updateBadgeState(item->checkState(0) == Qt::Checked);
@@ -773,7 +814,9 @@ void MainWindow::loadConfigFile() {
     for (int j = 0; j < parent->childCount(); ++j) {
       QTreeWidgetItem *child = parent->child(j);
       const QString topicName = child->data(0, Qt::UserRole).toString();
-      child->setCheckState(0, topicConfigs_.contains(topicName) ? Qt::Checked : Qt::Unchecked);
+      const bool checked = topicConfigs_.contains(topicName);
+      child->setCheckState(0, checked ? Qt::Checked : Qt::Unchecked);
+      applyCheckedStyle(child, checked);
     }
   }
   updatingTree_ = false;
@@ -881,10 +924,16 @@ void MainWindow::setBagData(const QJsonObject &bagData) {
   }
 
   updatingTree_ = true;
+  QFont headerFont(topicTree_->font());
+  headerFont.setBold(true);
+  const QBrush headerBrush(QColor(QStringLiteral("#f1f3f7")));
   for (auto it = groupedTopics.begin(); it != groupedTopics.end(); ++it) {
     auto *parent = new QTreeWidgetItem({it.key(), QString()});
     parent->setFirstColumnSpanned(true);
     parent->setFlags(Qt::ItemIsEnabled);
+    parent->setFont(0, headerFont);
+    parent->setBackground(0, headerBrush);
+    parent->setBackground(1, headerBrush);
     topicTree_->addTopLevelItem(parent);
     for (const QJsonObject &topic : it.value()) {
       auto *child = new QTreeWidgetItem({topic.value(QStringLiteral("name")).toString(),
@@ -892,6 +941,7 @@ void MainWindow::setBagData(const QJsonObject &bagData) {
       child->setData(0, Qt::UserRole, topic.value(QStringLiteral("name")).toString());
       child->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
       child->setCheckState(0, Qt::Unchecked);
+      child->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
       parent->addChild(child);
     }
   }
@@ -939,6 +989,8 @@ void MainWindow::updateUiAvailability() {
   baseDirButton_->setEnabled(hasBag && !exportRunning_ && !bagLoading_);
 
   exportButton_->setEnabled(hasBag && selectedCount > 0 && !exportRunning_);
+  exportButton_->setToolTip(selectedCount > 0 ? QStringLiteral("Start unbagging")
+                                              : QStringLiteral("Select at least one topic to unbag."));
   cancelButton_->setEnabled(exportRunning_ && bridge_->isExportRunning());
 }
 
@@ -1308,6 +1360,7 @@ void MainWindow::setTopicChecked(const QString &topicName, bool checked, bool bl
         const bool previous = updatingTree_;
         updatingTree_ = previous || blockSignals;
         child->setCheckState(0, checked ? Qt::Checked : Qt::Unchecked);
+        applyCheckedStyle(child, checked);
         updatingTree_ = previous;
         updateSummary();
         return;
