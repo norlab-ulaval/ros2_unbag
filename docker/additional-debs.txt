@@ -3,3 +3,5 @@ libxcb-shape0
 libxcb-icccm4
 libxcb-keysyms1
 libxkbcommon-x11-0
+qtbase5-dev
+libqt5svg5-dev

@@ -23,11 +23,12 @@
 import importlib
 import json
 import os
+from pathlib import Path
+import shutil
+import subprocess
 import sys
 from typing import Optional, Sequence
 
-from PySide6 import QtWidgets
-from PySide6.QtWidgets import QMessageBox
 from tqdm import tqdm
 
 from ros2_unbag.core.bag_reader import BagReader
@@ -36,7 +37,6 @@ from ros2_unbag.core.routines.base import ExportRoutine, ExportMode
 from ros2_unbag.core.utils.bag_utils import resolve_bag_path
 import ros2_unbag.core.processors
 import ros2_unbag.core.routines
-from ros2_unbag.ui.main_window import UnbagApp
 
 # ros2cli is optional
 try:
@@ -150,16 +150,50 @@ class ExportCommand(CommandExtension):
         Returns:
             int: Exit code from the Qt application.
         """
-        def qt_exception_hook(exctype, value, traceback):
-            QMessageBox.critical(None, "Unhandled Exception",
-                                 f"{exctype.__name__}: {value}")
-            sys.__excepthook__(exctype, value, traceback)
+        executable = self._locate_gui_executable()
+        completed = subprocess.run([executable], check=False)
+        return completed.returncode
 
-        sys.excepthook = qt_exception_hook
-        app = QtWidgets.QApplication(sys.argv)
-        window = UnbagApp()
-        window.show()
-        return app.exec()
+    def _locate_gui_executable(self):
+        """
+        Locate the installed C++ GUI executable.
+
+        Returns:
+            str: Absolute or PATH-resolved executable path.
+
+        Raises:
+            RuntimeError: If the GUI executable cannot be located.
+        """
+        env_override = os.environ.get("ROS2_UNBAG_GUI_EXECUTABLE")
+        if env_override:
+            return env_override
+
+        try:
+            from ament_index_python.packages import PackageNotFoundError, get_package_prefix
+
+            try:
+                prefix = Path(get_package_prefix("ros2_unbag"))
+            except PackageNotFoundError:
+                prefix = None
+            if prefix is not None:
+                candidate = prefix / "lib" / "ros2_unbag" / "ros2_unbag_gui"
+                if candidate.exists():
+                    return str(candidate)
+        except Exception:
+            pass
+
+        from_path = shutil.which("ros2_unbag_gui")
+        if from_path:
+            return from_path
+
+        local_build = Path.cwd() / "build" / "ros2_unbag_gui"
+        if local_build.exists():
+            return str(local_build)
+
+        raise RuntimeError(
+            "Could not locate the 'ros2_unbag_gui' executable. "
+            "Build/install the ROS package first or set ROS2_UNBAG_GUI_EXECUTABLE."
+        )
 
 
     def _run_cli(self, args):

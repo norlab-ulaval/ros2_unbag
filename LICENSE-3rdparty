@@ -28,38 +28,31 @@ This project includes the following third-party dependencies. Each is used unmod
 
 ---------------------------------------------------------------
 
-5. PySide6
-- License: GNU Lesser General Public License v3.0 (LGPL-3.0)
-- Source: https://pypi.org/project/PySide6/
-- Note: PySide6 is used as a dynamic dependency and has not been modified.
-
----------------------------------------------------------------
-
-6. rclpy
+5. rclpy
 - License: Apache License 2.0
 - Source: https://github.com/ros2/rclpy
 
 ---------------------------------------------------------------
 
-7. rosbag2_py
+6. rosbag2_py
 - License: Apache License 2.0
 - Source: https://github.com/ros2/rosbag2
 
 ---------------------------------------------------------------
 
-8. ros2cli
+7. ros2cli
 - License: Apache License 2.0
 - Source: https://github.com/ros2/ros2cli
 
 ---------------------------------------------------------------
 
-9. rosidl-runtime-py
+8. rosidl-runtime-py
 - License: Apache License 2.0
 - Source: https://github.com/ros2/rosidl_python
 
 ---------------------------------------------------------------
 
-10. tqdm
+9. tqdm
 - License: Apache License 2.0
 - Source: https://pypi.org/project/tqdm/
 
