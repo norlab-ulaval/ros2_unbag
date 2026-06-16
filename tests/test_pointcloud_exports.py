@@ -22,6 +22,7 @@
 
 from pathlib import Path
 import struct
+import numpy as np
 import sys
 import types
 
@@ -38,12 +39,39 @@ def _install_dependency_stubs():
     cv2.IMREAD_GRAYSCALE = 0
     cv2.IMREAD_UNCHANGED = 0
     cv2.NORM_MINMAX = 0
-    cv2.COLOR_GRAY2BGR = 0
+    cv2.COLOR_GRAY2BGR = 1
+    cv2.COLOR_RGB2BGR = 2
+    cv2.COLOR_BGRA2BGR = 3
+    cv2.COLOR_RGBA2BGR = 4
+    cv2.COLOR_YUV2BGR_YUY2 = 5
+    cv2.COLOR_BAYER_RG2BGR = 6
+    cv2.COLOR_BAYER_BG2BGR = 7
+    cv2.COLOR_BAYER_GB2BGR = 8
+    cv2.COLOR_BAYER_GR2BGR = 9
     cv2.imdecode = lambda *args, **kwargs: None
     cv2.normalize = lambda image, *_args, **_kwargs: image
     cv2.applyColorMap = lambda image, *_args, **_kwargs: image
     cv2.imencode = lambda *_args, **_kwargs: (True, types.SimpleNamespace(tobytes=lambda: b""))
-    cv2.cvtColor = lambda image, *_args, **_kwargs: image
+    def _cvt_color(image, code, *_args, **_kwargs):
+        if code == cv2.COLOR_RGB2BGR:
+            return image[..., ::-1]
+        if code == cv2.COLOR_BGRA2BGR:
+            return image[..., :3]
+        if code == cv2.COLOR_RGBA2BGR:
+            return image[..., [2, 1, 0]]
+        if code == cv2.COLOR_GRAY2BGR:
+            return np.repeat(image[..., None], 3, axis=2)
+        if code == cv2.COLOR_YUV2BGR_YUY2:
+            return np.zeros((image.shape[0], image.shape[1], 3), dtype=image.dtype)
+        if code in {
+            cv2.COLOR_BAYER_RG2BGR,
+            cv2.COLOR_BAYER_BG2BGR,
+            cv2.COLOR_BAYER_GB2BGR,
+            cv2.COLOR_BAYER_GR2BGR,
+        }:
+            return np.zeros((image.shape[0], image.shape[1], 3), dtype=image.dtype)
+        return image
+    cv2.cvtColor = _cvt_color
     cv2.imwrite = lambda *_args, **_kwargs: True
     cv2.VideoWriter_fourcc = lambda *args: 0
     cv2.VideoWriter = lambda *args, **kwargs: types.SimpleNamespace(
