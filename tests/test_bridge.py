@@ -100,23 +100,6 @@ def _install_ros_stubs():
     )
     sys.modules.setdefault("cv2", cv2)
 
-    pypcd4 = types.ModuleType("pypcd4")
-    pypcd4.PointCloud = type("PointCloud", (), {"from_points": staticmethod(lambda *args, **kwargs: None)})
-    pypcd4.Encoding = type(
-        "Encoding",
-        (),
-        {
-            "BINARY": "binary",
-            "BINARY_COMPRESSED": "binary_compressed",
-            "ASCII": "ascii",
-        },
-    )
-    sys.modules.setdefault("pypcd4", pypcd4)
-
-    pypcd4_pointcloud2 = types.ModuleType("pypcd4.pointcloud2")
-    pypcd4_pointcloud2.build_dtype_from_msg = lambda msg: []
-    sys.modules.setdefault("pypcd4.pointcloud2", pypcd4_pointcloud2)
-
 
 _install_ros_stubs()
 

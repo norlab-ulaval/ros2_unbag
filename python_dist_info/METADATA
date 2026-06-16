@@ -1,4 +1,0 @@
-Metadata-Version: 2.1
-Name: ros2_unbag
-Version: 1.2.3
-Summary: ROS 2 bag export tool with Python backend and C++ Qt Widgets GUI

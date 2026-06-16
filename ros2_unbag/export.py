@@ -28,8 +28,15 @@ import shutil
 import subprocess
 import sys
 from typing import Optional, Sequence
-
 from tqdm import tqdm
+
+try:
+    from ros2cli.command import CommandExtension
+except Exception:
+    class CommandExtension:
+        """Fallback base class for plain Python imports without ros2cli."""
+
+        pass
 
 from ros2_unbag.core.bag_reader import BagReader
 from ros2_unbag.core.exporter import Exporter
@@ -37,13 +44,6 @@ from ros2_unbag.core.routines.base import ExportRoutine, ExportMode
 from ros2_unbag.core.utils.bag_utils import resolve_bag_path
 import ros2_unbag.core.processors
 import ros2_unbag.core.routines
-
-# ros2cli is optional
-try:
-    from ros2cli.command import CommandExtension
-except Exception:
-    class CommandExtension:
-        pass
 
 class ExportCommand(CommandExtension):
 
@@ -477,9 +477,11 @@ class ExportCommand(CommandExtension):
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Standalone CLI entry point for environments without ros2cli.
-    Keeps behavior consistent with the ROS 2 verb by wiring argparse
-    to the same ExportCommand implementation.
+    """Expose the export command through a plain Python entry point.
+
+    This is mainly useful for tests and local invocation without going through
+    the ROS 2 CLI plugin loader, while still reusing ExportCommand argument
+    registration and execution logic.
     """
     import argparse
 

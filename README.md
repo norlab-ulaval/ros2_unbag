@@ -5,8 +5,6 @@
 <p align="center">
   <img src="https://img.shields.io/github/license/ika-rwth-aachen/ros2_unbag"/>
   <a href="https://github.com/ika-rwth-aachen/ros2_unbag/actions/workflows/build_docker.yml"><img src="https://github.com/ika-rwth-aachen/ros2_unbag/actions/workflows/build_docker.yml/badge.svg"/></a>
-  <a href="https://pypi.org/project/ros2-unbag/"><img src="https://img.shields.io/pypi/v/ros2-unbag?label=PyPI"/></a>
-  <img alt="GitHub Repo stars" src="https://img.shields.io/pypi/dm/ros2-unbag">
 </p>
 
 *ros2 unbag* is a powerful ROS 2 tool featuring an **intuitive GUI** and **flexible CLI** for extracting topics from `.db3` or `.mcap` bag files into formats like CSV, JSON, PCD, images, and more.
@@ -23,7 +21,6 @@
 - [Introduction](#introduction)
 - [Installation](#installation)  
   - [Prerequisites](#prerequisites)  
-  - [From PyPI (via pip)](#from-pypi-via-pip)  
   - [From Source](#from-source)  
   - [Docker](#docker)  
 - [Quick Start](#quick-start)  
@@ -69,12 +66,6 @@ Install the required apt dependencies:
 ```bash
 sudo apt update
 sudo apt install qtbase5-dev libqt5svg5-dev libxcb-cursor0 libxcb-shape0 libxcb-icccm4 libxcb-keysyms1 libxkbcommon-x11-0
-```
-
-### From PyPI (via pip)
-
-```bash
-pip install ros2-unbag
 ```
 
 ### From source

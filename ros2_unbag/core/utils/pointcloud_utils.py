@@ -1,9 +1,42 @@
+# MIT License
+
+# Copyright (c) 2025 Institute for Automotive Engineering (ika), RWTH Aachen University
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import struct
 
 import numpy as np
-from pypcd4 import PointCloud
-from pypcd4.pointcloud2 import build_dtype_from_msg
 from sensor_msgs.msg import PointCloud2
+from sensor_msgs.msg import PointField
+
+
+_POINT_FIELD_DTYPES = {
+    PointField.INT8: ("i1", 1, "I", "b"),
+    PointField.UINT8: ("u1", 1, "U", "B"),
+    PointField.INT16: ("i2", 2, "I", "h"),
+    PointField.UINT16: ("u2", 2, "U", "H"),
+    PointField.INT32: ("i4", 4, "I", "i"),
+    PointField.UINT32: ("u4", 4, "U", "I"),
+    PointField.FLOAT32: ("f4", 4, "F", "f"),
+    PointField.FLOAT64: ("f8", 8, "F", "d"),
+}
 
 
 def quaternion_matrix(quaternion):
@@ -103,25 +136,337 @@ def apply_pointcloud_transform(msg, translation, rotation):
     return transformed_msg
 
 
-def convert_pointcloud2_to_pypcd(msg):
-    """Convert a PointCloud2 message to a Pypcd PointCloud object.
-    Args:
-        msg (sensor_msgs.msg.PointCloud2): PointCloud2 message instance.
-    Returns:
-        pypcd4.PointCloud: Pypcd PointCloud object.
+def _field_count(field) -> int:
     """
+    Normalize the declared element count for one PointCloud2 field.
 
-    # Build dtype from message fields
-    dtype_fields = build_dtype_from_msg(msg)
-    dtype = np.dtype(dtype_fields)
+    Args:
+        field: PointField-like object.
 
-    # Get field names and types
-    field_names = tuple(f.name for f in msg.fields)
-    np_types = tuple(dtype[name].type for name in field_names)
-    structured_array = np.frombuffer(msg.data, dtype=dtype)
-    points_np = np.vstack([structured_array[name] for name in field_names]).T
+    Returns:
+        int: Field element count, defaulting to ``1``.
+    """
+    return field.count if getattr(field, "count", 0) > 0 else 1
 
-    # Build point cloud
-    pc = PointCloud.from_points(points_np, field_names, np_types)
 
-    return pc
+def _field_dtype(field, *, endian: str) -> str:
+    """
+    Build a numpy dtype string for one PointCloud2 field.
+
+    Args:
+        field: PointField-like object.
+        endian: Byte order prefix, ``"<"`` or ``">"``.
+
+    Returns:
+        str: Numpy dtype string.
+
+    Raises:
+        ValueError: If the PointField datatype is unsupported.
+    """
+    info = _POINT_FIELD_DTYPES.get(field.datatype)
+    if info is None:
+        raise ValueError(f"Unsupported PointField datatype: {field.datatype}")
+    return endian + info[0]
+
+
+def _build_structured_dtype(msg: PointCloud2, *, endian: str, packed: bool) -> np.dtype:
+    """
+    Build a structured numpy dtype for the PointCloud2 layout.
+
+    Args:
+        msg: PointCloud2 message instance.
+        endian: Byte order prefix, ``"<"`` or ``">"``.
+        packed: If ``True``, build a tightly packed dtype for PCD output.
+
+    Returns:
+        numpy.dtype: Structured dtype representing one point.
+    """
+    names = []
+    formats = []
+    offsets = []
+    packed_offset = 0
+
+    for field in msg.fields:
+        count = _field_count(field)
+        base_dtype = np.dtype(_field_dtype(field, endian=endian))
+        field_format = (base_dtype, (count,)) if count > 1 else base_dtype
+        names.append(field.name)
+        formats.append(field_format)
+        offsets.append(packed_offset if packed else field.offset)
+        packed_offset += base_dtype.itemsize * count
+
+    return np.dtype(
+        {
+            "names": names,
+            "formats": formats,
+            "offsets": offsets,
+            "itemsize": packed_offset if packed else msg.point_step,
+        }
+    )
+
+
+def pointcloud2_to_structured_array(msg: PointCloud2) -> np.ndarray:
+    """
+    Convert a PointCloud2 message into a structured numpy array of points.
+
+    Args:
+        msg: PointCloud2 message instance.
+
+    Returns:
+        numpy.ndarray: Structured array with one element per point.
+    """
+    dtype = _build_structured_dtype(msg, endian=">" if msg.is_bigendian else "<", packed=False)
+    point_count = msg.width * msg.height
+    if point_count == 0:
+        return np.empty((0,), dtype=dtype)
+
+    rows = []
+    buffer = memoryview(msg.data)
+    for row in range(msg.height):
+        row_offset = row * msg.row_step
+        rows.append(
+            np.ndarray(
+                shape=(msg.width,),
+                dtype=dtype,
+                buffer=buffer,
+                offset=row_offset,
+                strides=(msg.point_step,),
+            )
+        )
+    return rows[0].copy() if len(rows) == 1 else np.concatenate(rows).copy()
+
+
+def pointcloud2_to_pcd_array(msg: PointCloud2) -> np.ndarray:
+    """
+    Convert a PointCloud2 message into a tightly packed little-endian PCD array.
+
+    Args:
+        msg: PointCloud2 message instance.
+
+    Returns:
+        numpy.ndarray: Structured array in PCD-compatible field layout.
+    """
+    structured = pointcloud2_to_structured_array(msg)
+    packed_dtype = _build_structured_dtype(msg, endian="<", packed=True)
+    packed = np.empty(structured.shape, dtype=packed_dtype)
+    for field in msg.fields:
+        packed[field.name] = structured[field.name]
+    return packed
+
+
+def build_pcd_header(msg: PointCloud2, data_mode: str) -> bytes:
+    """
+    Build a PCD v0.7 header for a PointCloud2 message.
+
+    Args:
+        msg: PointCloud2 message instance.
+        data_mode: PCD data mode: ``ascii``, ``binary``, or ``binary_compressed``.
+
+    Returns:
+        bytes: UTF-8 encoded PCD header.
+    """
+    fields = []
+    sizes = []
+    types = []
+    counts = []
+    for field in msg.fields:
+        _, size, pcd_type, _ = _POINT_FIELD_DTYPES[field.datatype]
+        fields.append(field.name)
+        sizes.append(str(size))
+        types.append(pcd_type)
+        counts.append(str(_field_count(field)))
+
+    point_count = msg.width * msg.height
+    header = [
+        "# .PCD v0.7 - Point Cloud Data file format",
+        "VERSION 0.7",
+        f"FIELDS {' '.join(fields)}",
+        f"SIZE {' '.join(sizes)}",
+        f"TYPE {' '.join(types)}",
+        f"COUNT {' '.join(counts)}",
+        f"WIDTH {msg.width}",
+        f"HEIGHT {msg.height}",
+        "VIEWPOINT 0 0 0 1 0 0 0",
+        f"POINTS {point_count}",
+        f"DATA {data_mode}",
+    ]
+    return ("\n".join(header) + "\n").encode("utf-8")
+
+
+def format_pcd_ascii_data(msg: PointCloud2) -> bytes:
+    """
+    Serialize a PointCloud2 message into ASCII PCD point data.
+
+    Args:
+        msg: PointCloud2 message instance.
+
+    Returns:
+        bytes: UTF-8 encoded ASCII point rows.
+    """
+    packed = pointcloud2_to_pcd_array(msg)
+    lines = []
+    for point in packed:
+        values = []
+        for field in msg.fields:
+            value = point[field.name]
+            if np.isscalar(value):
+                values.append(str(value.item()))
+            else:
+                values.extend(str(component.item()) for component in np.asarray(value).reshape(-1))
+        lines.append(" ".join(values))
+    return ("\n".join(lines) + ("\n" if lines else "")).encode("utf-8")
+
+
+def format_pcd_binary_data(msg: PointCloud2) -> bytes:
+    """
+    Serialize a PointCloud2 message into packed binary PCD point data.
+
+    Args:
+        msg: PointCloud2 message instance.
+
+    Returns:
+        bytes: Packed binary point payload.
+    """
+    return pointcloud2_to_pcd_array(msg).tobytes()
+
+
+def _field_byte_width(field) -> int:
+    """
+    Compute the packed byte width for one PCD field.
+
+    Args:
+        field: PointField-like object.
+
+    Returns:
+        int: Total field width in bytes.
+    """
+    return _POINT_FIELD_DTYPES[field.datatype][1] * _field_count(field)
+
+
+def _pcd_struct_of_arrays_bytes(msg: PointCloud2, packed: np.ndarray) -> bytes:
+    """
+    Reorder packed point data into the field-major layout used by PCD compression.
+
+    Args:
+        msg: PointCloud2 message instance.
+        packed: Packed PCD structured array.
+
+    Returns:
+        bytes: Field-major byte stream.
+    """
+    chunks = []
+    for field in msg.fields:
+        chunks.append(np.ascontiguousarray(packed[field.name]).tobytes())
+    return b"".join(chunks)
+
+
+def _lzf_compress(data: bytes) -> bytes:
+    """
+    Compress data using the LZF format expected by binary-compressed PCD files.
+
+    Args:
+        data: Uncompressed byte payload.
+
+    Returns:
+        bytes: LZF-compressed payload.
+    """
+    if not data:
+        return b""
+
+    hlog = 14
+    hsize = 1 << hlog
+    max_lit = 1 << 5
+    max_off = 1 << 13
+    max_ref = (1 << 8) + (1 << 3)
+    table = [-1] * hsize
+    output = bytearray()
+    literals = bytearray()
+    i = 0
+    data_len = len(data)
+
+    def flush_literals() -> None:
+        while literals:
+            chunk = literals[:max_lit]
+            del literals[:max_lit]
+            output.append(len(chunk) - 1)
+            output.extend(chunk)
+
+    while i < data_len:
+        if i < data_len - 2:
+            hval = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2]
+            slot = ((hval * 57321) >> 9) & (hsize - 1)
+            ref = table[slot]
+            table[slot] = i
+            off = i - ref - 1
+
+            if (
+                ref >= 0
+                and off < max_off
+                and data[ref:ref + 3] == data[i:i + 3]
+            ):
+                flush_literals()
+                match_len = 3
+                max_match = min(data_len - i, max_ref + 2)
+                while match_len < max_match and data[ref + match_len] == data[i + match_len]:
+                    match_len += 1
+
+                length_code = match_len - 2
+                if length_code < 7:
+                    output.append((length_code << 5) | (off >> 8))
+                else:
+                    output.append((7 << 5) | (off >> 8))
+                    output.append(length_code - 7)
+                output.append(off & 0xFF)
+
+                i += match_len
+                continue
+
+        literals.append(data[i])
+        if len(literals) == max_lit:
+            flush_literals()
+        i += 1
+
+    flush_literals()
+    return bytes(output)
+
+
+def format_pcd_binary_compressed_data(msg: PointCloud2) -> bytes:
+    """
+    Serialize a PointCloud2 message into PCD binary-compressed payload bytes.
+
+    Args:
+        msg: PointCloud2 message instance.
+
+    Returns:
+        bytes: Binary-compressed payload including size prefix words.
+    """
+    packed = pointcloud2_to_pcd_array(msg)
+    uncompressed = _pcd_struct_of_arrays_bytes(msg, packed)
+    compressed = _lzf_compress(uncompressed)
+    return struct.pack("<II", len(compressed), len(uncompressed)) + compressed
+
+
+def write_pointcloud_pcd(msg: PointCloud2, path, data_mode: str) -> None:
+    """
+    Write a PointCloud2 message to a PCD v0.7 file.
+
+    Args:
+        msg: PointCloud2 message instance.
+        path: Output path, including the ``.pcd`` suffix.
+        data_mode: PCD data mode: ``ascii``, ``binary``, or ``binary_compressed``.
+
+    Returns:
+        None
+    """
+    if data_mode == "ascii":
+        payload = format_pcd_ascii_data(msg)
+    elif data_mode == "binary":
+        payload = format_pcd_binary_data(msg)
+    elif data_mode == "binary_compressed":
+        payload = format_pcd_binary_compressed_data(msg)
+    else:
+        raise ValueError(f"Unsupported PCD data mode: {data_mode}")
+
+    with open(path, "wb") as stream:
+        stream.write(build_pcd_header(msg, data_mode))
+        stream.write(payload)
