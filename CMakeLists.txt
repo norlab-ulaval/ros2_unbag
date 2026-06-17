@@ -73,8 +73,11 @@ install(FILES
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
-  ament_add_pytest_test(test_bridge tests/test_bridge.py)
-  ament_add_pytest_test(test_pointcloud_exports tests/test_pointcloud_exports.py)
+  file(GLOB ROS2_UNBAG_PYTESTS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "tests/test_*.py")
+  foreach(pytest_file IN LISTS ROS2_UNBAG_PYTESTS)
+    get_filename_component(pytest_name "${pytest_file}" NAME_WE)
+    ament_add_pytest_test("${pytest_name}" "${pytest_file}")
+  endforeach()
 endif()
 
 ament_package()

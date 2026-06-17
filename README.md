@@ -20,7 +20,6 @@
 ## Table of Contents
 - [Introduction](#introduction)
 - [Installation](#installation)  
-  - [Prerequisites](#prerequisites)  
   - [From Source](#from-source)  
   - [Docker](#docker)  
 - [Quick Start](#quick-start)  
@@ -51,34 +50,39 @@ Whether you prefer the **GUI for interactive exploration** or `ros2 unbag <args>
 
 ## Installation 
 
-### Prerequisites
-
-Make sure you have a working ROS 2 installation (e.g., Humble, Iron, Jazzy, or newer) and that your environment is sourced:
-
-```bash
-source /opt/ros/<distro>/setup.bash
-```
-
-Replace `<distro>` with your ROS 2 distribution.
-
-Install the required apt dependencies:
-
-```bash
-sudo apt update
-sudo apt install qtbase5-dev libqt5svg5-dev libxcb-cursor0 libxcb-shape0 libxcb-icccm4 libxcb-keysyms1 libxkbcommon-x11-0
-```
-
 ### From source
 
-```bash
-git clone https://github.com/ika-rwth-aachen/ros2_unbag.git
-mkdir -p ros2_ws/src
-mv ros2_unbag ros2_ws/src/
-cd ros2_ws
-source /opt/ros/<distro>/setup.bash
-colcon build --packages-select ros2_unbag
-source install/setup.bash
-```
+1. Create a ROS 2 workspace and clone the repository into `src`:
+
+   ```bash
+   mkdir -p ros2_ws/src
+   git clone https://github.com/ika-rwth-aachen/ros2_unbag.git ros2_ws/src/ros2_unbag
+   cd ros2_ws
+   ```
+
+2. Source your ROS 2 installation:
+
+   ```bash
+   source /opt/ros/<distro>/setup.bash
+   ```
+
+3. Install the package dependencies via `rosdep`:
+
+   ```bash
+   rosdep install --from-paths src --ignore-src -r -y
+   ```
+
+4. Build the package with `colcon`:
+
+   ```bash
+   colcon build --packages-select ros2_unbag
+   ```
+
+5. Source the workspace overlay:
+
+   ```bash
+   source install/setup.bash
+   ```
 
 ### Docker 
 
