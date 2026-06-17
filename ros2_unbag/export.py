@@ -166,21 +166,29 @@ class ExportCommand(CommandExtension):
         """
         env_override = os.environ.get("ROS2_UNBAG_GUI_EXECUTABLE")
         if env_override:
-            return env_override
+            override_path = Path(env_override).expanduser()
+            if override_path.is_file() and os.access(override_path, os.X_OK):
+                return str(override_path)
+            raise RuntimeError(
+                "ROS2_UNBAG_GUI_EXECUTABLE is set but does not point to an executable file: "
+                f"{env_override}"
+            )
 
         try:
             from ament_index_python.packages import PackageNotFoundError, get_package_prefix
-
+        except ImportError:
+            # Non-ROS environments may not provide ament_index_python; fall
+            # back to PATH and local-build probing below.
+            pass
+        else:
             try:
                 prefix = Path(get_package_prefix("unbag"))
-            except PackageNotFoundError:
+            except (PackageNotFoundError, ValueError):
                 prefix = None
             if prefix is not None:
                 candidate = prefix / "lib" / "unbag" / "ros2_unbag_gui"
                 if candidate.exists():
                     return str(candidate)
-        except Exception:
-            pass
 
         from_path = shutil.which("ros2_unbag_gui")
         if from_path:

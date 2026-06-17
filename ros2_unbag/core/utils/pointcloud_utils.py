@@ -178,8 +178,14 @@ def _field_byte_width(field) -> int:
 
     Returns:
         int: Total field width in bytes.
+
+    Raises:
+        ValueError: If the PointField datatype is unsupported.
     """
-    return _POINT_FIELD_DTYPES[field.datatype][1] * _field_count(field)
+    info = _POINT_FIELD_DTYPES.get(field.datatype)
+    if info is None:
+        raise ValueError(f"Unsupported PointField datatype: {field.datatype}")
+    return info[1] * _field_count(field)
 
 
 def _packed_field_layout(msg: PointCloud2) -> tuple[list[tuple[PointField, int, int]], int]:

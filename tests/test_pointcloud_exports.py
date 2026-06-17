@@ -122,18 +122,6 @@ PointCloud2, PointField = _install_sensor_msgs_stubs()
 from ros2_unbag.core.routines.pointcloud import export_pointcloud_pcd, export_pointcloud_xyz  # noqa: E402
 
 
-_TYPE_INFO = {
-    PointField.INT8: ("b", 1, "I"),
-    PointField.UINT8: ("B", 1, "U"),
-    PointField.INT16: ("h", 2, "I"),
-    PointField.UINT16: ("H", 2, "U"),
-    PointField.INT32: ("i", 4, "I"),
-    PointField.UINT32: ("I", 4, "U"),
-    PointField.FLOAT32: ("f", 4, "F"),
-    PointField.FLOAT64: ("d", 8, "F"),
-}
-
-
 def _build_pointcloud(points, *, is_bigendian=False):
     msg = PointCloud2()
     msg.width = 2

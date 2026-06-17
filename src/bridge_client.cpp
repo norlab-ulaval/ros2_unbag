@@ -32,9 +32,15 @@ namespace {
 QJsonObject parseJsonObject(const QByteArray &data, QString *error) {
   QJsonParseError parseError;
   const QJsonDocument document = QJsonDocument::fromJson(data, &parseError);
-  if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+  if (parseError.error != QJsonParseError::NoError) {
     if (error != nullptr) {
       *error = QStringLiteral("Bridge returned invalid JSON: %1").arg(parseError.errorString());
+    }
+    return {};
+  }
+  if (!document.isObject()) {
+    if (error != nullptr) {
+      *error = QStringLiteral("Bridge returned JSON that was not an object.");
     }
     return {};
   }
