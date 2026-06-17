@@ -172,11 +172,11 @@ class ExportCommand(CommandExtension):
             from ament_index_python.packages import PackageNotFoundError, get_package_prefix
 
             try:
-                prefix = Path(get_package_prefix("ros2_unbag"))
+                prefix = Path(get_package_prefix("unbag"))
             except PackageNotFoundError:
                 prefix = None
             if prefix is not None:
-                candidate = prefix / "lib" / "ros2_unbag" / "ros2_unbag_gui"
+                candidate = prefix / "lib" / "unbag" / "ros2_unbag_gui"
                 if candidate.exists():
                     return str(candidate)
         except Exception:

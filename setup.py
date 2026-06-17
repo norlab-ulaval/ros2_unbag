@@ -45,7 +45,7 @@ PACKAGE_VERSION, PACKAGE_DESCRIPTION = _read_package_metadata()
 
 
 setup(
-    name="ros2_unbag",
+    name="unbag",
     version=PACKAGE_VERSION,
     description=PACKAGE_DESCRIPTION,
     license="MIT",
@@ -55,7 +55,7 @@ setup(
             "unbag = ros2_unbag.export:ExportCommand",
         ],
         "ros2cli.extension_point": [
-            "ros2_unbag = ros2cli.command:CommandExtension",
+            "unbag = ros2cli.command:CommandExtension",
         ],
     },
 )

@@ -76,7 +76,7 @@ Whether you prefer the **GUI for interactive exploration** or `ros2 unbag <args>
 4. Build the package with `colcon`:
 
    ```bash
-   colcon build --packages-select ros2_unbag
+   colcon build --packages-select unbag
    ```
 
 5. Source the workspace overlay:
