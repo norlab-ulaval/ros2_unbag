@@ -244,14 +244,15 @@ void MainWindow::buildUi() {
   topicTree_->setSelectionMode(QAbstractItemView::SingleSelection);
   topicTree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
   topicTree_->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+  topicTree_->header()->setStretchLastSection(false);
   topicTree_->setRootIsDecorated(false);
   leftLayout->addWidget(topicTree_, 1);
 
   auto *buttonRow = new QHBoxLayout();
-  auto *allButton = new QPushButton(QStringLiteral("All"), leftContainer);
-  auto *noneButton = new QPushButton(QStringLiteral("None"), leftContainer);
-  buttonRow->addWidget(allButton);
-  buttonRow->addWidget(noneButton);
+  selectAllButton_ = new QPushButton(QStringLiteral("All"), leftContainer);
+  selectNoneButton_ = new QPushButton(QStringLiteral("None"), leftContainer);
+  buttonRow->addWidget(selectAllButton_);
+  buttonRow->addWidget(selectNoneButton_);
   leftLayout->addLayout(buttonRow);
 
   auto *configRow = new QHBoxLayout();
@@ -277,6 +278,7 @@ void MainWindow::buildUi() {
   scrollArea->setWidget(middleStack_);
 
   auto *loadingPage = new QWidget(middleStack_);
+  loadingPage->setObjectName(QStringLiteral("loadingPage"));
   auto *loadingLayout = new QVBoxLayout(loadingPage);
   loadingLayout->setAlignment(Qt::AlignCenter);
   loadingLabel_ = new QLabel(loadingPage);
@@ -291,6 +293,7 @@ void MainWindow::buildUi() {
   middleStack_->addWidget(loadingPage);
 
   settingsPage_ = new QWidget(middleStack_);
+  settingsPage_->setObjectName(QStringLiteral("settingsPage"));
   auto *settingsLayout = new QVBoxLayout(settingsPage_);
   settingsLayout->setAlignment(Qt::AlignTop);
 
@@ -319,15 +322,21 @@ void MainWindow::buildUi() {
   formatLayout->setContentsMargins(0, 0, 0, 0);
   formatLayout->setSpacing(8);
   formatCombo_ = new QComboBox(formatRow);
+  formatCombo_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
   formatLayout->addWidget(formatCombo_, 1);
   auto *modeContainer = new QWidget(formatRow);
+  modeContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
   auto *modeLayout = new QHBoxLayout(modeContainer);
   modeLayout->setContentsMargins(0, 0, 0, 0);
   modeLayout->setSpacing(4);
   modeLabel_ = new QLabel(QStringLiteral("Mode"), modeContainer);
+  modeLabel_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
   modeCombo_ = new QComboBox(modeContainer);
+  modeCombo_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+  modeCombo_->setMinimumContentsLength(12);
   modeLayout->addWidget(modeLabel_);
   modeLayout->addWidget(modeCombo_);
+  modeLayout->setStretch(1, 1);
   formatLayout->addWidget(modeContainer, 1);
   formLayout->addRow(QStringLiteral("Format"), formatRow);
 
@@ -515,7 +524,7 @@ void MainWindow::buildUi() {
   connect(feedbackCloseButton_, &QToolButton::clicked, this, &MainWindow::clearFeedback);
   connect(feedbackTimer_, &QTimer::timeout, this, &MainWindow::clearFeedback);
   connect(topicFilterEdit_, &QLineEdit::textChanged, this, &MainWindow::applyProxyFilter);
-  connect(allButton, &QPushButton::clicked, this, [this]() {
+  connect(selectAllButton_, &QPushButton::clicked, this, [this]() {
     for (int i = 0; i < topicTree_->topLevelItemCount(); ++i) {
       QTreeWidgetItem *parent = topicTree_->topLevelItem(i);
       for (int j = 0; j < parent->childCount(); ++j) {
@@ -524,7 +533,7 @@ void MainWindow::buildUi() {
     }
     updateSummary();
   });
-  connect(noneButton, &QPushButton::clicked, this, [this]() {
+  connect(selectNoneButton_, &QPushButton::clicked, this, [this]() {
     for (int i = 0; i < topicTree_->topLevelItemCount(); ++i) {
       QTreeWidgetItem *parent = topicTree_->topLevelItem(i);
       for (int j = 0; j < parent->childCount(); ++j) {
@@ -638,7 +647,7 @@ void MainWindow::loadBag() {
       QStringLiteral("inspect_bag"),
       QJsonObject{
           {QStringLiteral("bag_path"), selected.first()},
-          {QStringLiteral("base_dir"), baseDirectory_},
+          {QStringLiteral("base_dir"), selected.first()},
       },
       &error);
 
@@ -948,6 +957,7 @@ void MainWindow::setBagData(const QJsonObject &bagData) {
   updatingTree_ = false;
 
   topicTree_->expandAll();
+  topicTree_->resizeColumnToContents(1);
   updateSummary();
   setExportRunning(false);
   showTopicPlaceholder();
@@ -978,6 +988,8 @@ void MainWindow::updateUiAvailability() {
   loadBagSecondaryButton_->setEnabled(!exportRunning_ && !bagLoading_);
   topicTree_->setEnabled(hasBag && !exportRunning_ && !bagLoading_);
   topicFilterEdit_->setEnabled(hasBag && !exportRunning_ && !bagLoading_);
+  selectAllButton_->setEnabled(hasBag && !exportRunning_ && !bagLoading_);
+  selectNoneButton_->setEnabled(hasBag && !exportRunning_ && !bagLoading_);
   topicFormWidget_->setEnabled(hasBag && !exportRunning_ && !bagLoading_);
   loadConfigButton_->setEnabled(hasBag && !exportRunning_ && !bagLoading_);
   saveConfigButton_->setEnabled(hasBag && !exportRunning_ && !bagLoading_);

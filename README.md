@@ -4,6 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/github/license/ika-rwth-aachen/ros2_unbag"/>
+  <a href="https://github.com/ika-rwth-aachen/ros2_unbag/releases/latest"><img src="https://img.shields.io/github/v/release/ika-rwth-aachen/ros2_unbag"/></a>
   <a href="https://github.com/ika-rwth-aachen/ros2_unbag/actions/workflows/docker-ros.yml"><img src="https://github.com/ika-rwth-aachen/ros2_unbag/actions/workflows/docker-ros.yml/badge.svg"/></a>
 </p>
 

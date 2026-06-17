@@ -184,6 +184,8 @@ private:
 
   QTreeWidget *topicTree_;
   QLineEdit *topicFilterEdit_;
+  QPushButton *selectAllButton_;
+  QPushButton *selectNoneButton_;
   QPushButton *loadBagButton_;
   QPushButton *loadBagSecondaryButton_;
   QLabel *bagNameLabel_;

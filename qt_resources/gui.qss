@@ -71,20 +71,37 @@ QScrollArea > QWidget > QWidget {
   background: white;
 }
 
+QWidget#settingsPage,
+QWidget#loadingPage {
+  background: #f7f9fc;
+}
+
 QTreeWidget {
   background: white;
   border: 1px solid #cfd6e3;
   border-radius: 6px;
   color: #0f172a;
+  selection-background-color: #e5edff;
+  selection-color: #0f172a;
+  show-decoration-selected: 1;
+  outline: 0;
 }
 
 QTreeWidget::item {
   height: 28px;
 }
 
-QTreeWidget::item:selected {
+QTreeWidget::item:selected,
+QTreeWidget::item:selected:active,
+QTreeWidget::item:selected:!active {
   background: #e5edff;
   color: #0f172a;
+}
+
+QTreeView::branch:selected,
+QTreeView::branch:selected:active,
+QTreeView::branch:selected:!active {
+  background: #e5edff;
 }
 
 QHeaderView::section {
