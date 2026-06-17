@@ -82,8 +82,11 @@ private:
   QStringList bridgeArguments(const QString &command) const;
   /// Parse and dispatch a single NDJSON export event line.
   void processExportLine(const QByteArray &line);
+  /// Dispose the finished export process and clear client-side state.
+  void cleanupExportProcess();
 
   mutable QProcess *exportProcess_{nullptr};
   mutable QByteArray exportStdoutBuffer_;
   mutable bool exportSawTerminalEvent_{false};
+  mutable bool cancelRequested_{false};
 };

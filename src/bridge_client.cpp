@@ -101,6 +101,7 @@ void BridgeClient::startExport(const QJsonObject &payload) {
   exportProcess_ = new QProcess(this);
   exportStdoutBuffer_.clear();
   exportSawTerminalEvent_ = false;
+  cancelRequested_ = false;
 
   connect(exportProcess_, &QProcess::readyReadStandardOutput, this, &BridgeClient::handleExportStdout);
   connect(exportProcess_,
@@ -111,8 +112,7 @@ void BridgeClient::startExport(const QJsonObject &payload) {
   exportProcess_->start(pythonExecutable(), bridgeArguments(QStringLiteral("run_export")));
   if (!exportProcess_->waitForStarted()) {
     emit exportError(QStringLiteral("Failed to start export bridge process."));
-    exportProcess_->deleteLater();
-    exportProcess_ = nullptr;
+    cleanupExportProcess();
     return;
   }
 
@@ -128,13 +128,16 @@ void BridgeClient::cancelExport() {
   // Export cancellation is defined as terminating the dedicated run_export
   // bridge process. The Python bridge handles SIGTERM/SIGINT and aborts the
   // active exporter from there, so no separate cancel RPC exists.
+  cancelRequested_ = true;
   exportProcess_->terminate();
   if (!exportProcess_->waitForFinished(2000)) {
     exportProcess_->kill();
     exportProcess_->waitForFinished(2000);
   }
-  exportProcess_->deleteLater();
-  exportProcess_ = nullptr;
+
+  if (exportProcess_ != nullptr) {
+    handleExportFinished(exportProcess_->exitCode());
+  }
 }
 
 bool BridgeClient::isExportRunning() const {
@@ -173,10 +176,18 @@ void BridgeClient::handleExportFinished(int exitCode) {
   }
 
   const QString stderrOutput = QString::fromUtf8(exportProcess_->readAllStandardError()).trimmed();
-  exportProcess_->deleteLater();
-  exportProcess_ = nullptr;
+  const bool cancelRequested = cancelRequested_;
+  const bool sawTerminalEvent = exportSawTerminalEvent_;
+  cleanupExportProcess();
 
-  if (!exportSawTerminalEvent_) {
+  if (cancelRequested) {
+    if (!sawTerminalEvent) {
+      emit exportError(QStringLiteral("Export aborted by user"));
+    }
+    return;
+  }
+
+  if (!sawTerminalEvent) {
     if (!stderrOutput.isEmpty()) {
       emit exportError(stderrOutput);
     } else if (exitCode != 0) {
@@ -225,4 +236,14 @@ void BridgeClient::processExportLine(const QByteArray &line) {
     exportSawTerminalEvent_ = true;
     emit exportError(event.value(QStringLiteral("message")).toString());
   }
+}
+
+void BridgeClient::cleanupExportProcess() {
+  if (exportProcess_ != nullptr) {
+    exportProcess_->deleteLater();
+    exportProcess_ = nullptr;
+  }
+  exportStdoutBuffer_.clear();
+  exportSawTerminalEvent_ = false;
+  cancelRequested_ = false;
 }
