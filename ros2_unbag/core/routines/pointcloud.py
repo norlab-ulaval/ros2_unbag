@@ -1,6 +1,6 @@
 # MIT License
 
-# Copyright (c) 2025 Institute for Automotive Engineering (ika), RWTH Aachen University
+# Copyright (c) 2026 Institute for Automotive Engineering (ika), RWTH Aachen University
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -25,11 +25,10 @@ import math
 from pathlib import Path
 import pickle
 
-from pypcd4 import Encoding
 from sensor_msgs.msg import PointField
 
 from ros2_unbag.core.routines.base import ExportRoutine, ExportMode, ExportMetadata
-from ros2_unbag.core.utils.pointcloud_utils import convert_pointcloud2_to_pypcd
+from ros2_unbag.core.utils.pointcloud_utils import write_pointcloud_pcd
 
 
 @ExportRoutine("sensor_msgs/msg/PointCloud2", ["pointcloud/pkl"], mode=ExportMode.MULTI_FILE)
@@ -94,27 +93,26 @@ def export_pointcloud_xyz(msg, path: Path, fmt: str, metadata: ExportMetadata):
 @ExportRoutine("sensor_msgs/msg/PointCloud2", ["pointcloud/pcd", "pointcloud/pcd_compressed", "pointcloud/pcd_ascii"], mode=ExportMode.MULTI_FILE)
 def export_pointcloud_pcd(msg, path: Path, fmt: str, metadata: ExportMetadata):
     """
-    Export PointCloud2 message as a binary PCD v0.7 file.
-    Construct and write PCD header from message fields and metadata, then pack and write each point’s data.
+    Export PointCloud2 message as a PCD v0.7 file.
+
+    Supports ASCII, binary, and binary-compressed PCD output while preserving
+    the original message fields.
 
     Args:
         msg: PointCloud2 message instance.
         path: Output file path (without extension).
-        fmt: Export format string (default "pointcloud/xyz").
+        fmt: Export format string.
         metadata: Export metadata including message index and max index.
 
     Returns:
         None
     """
 
-    # Build point cloud
-    pc = convert_pointcloud2_to_pypcd(msg)
-
-
-    # Save the point cloud to a PCD file
     if fmt == "pointcloud/pcd":
-        pc.save(path.with_suffix(".pcd"), encoding=Encoding.BINARY)
+        write_pointcloud_pcd(msg, path.with_suffix(".pcd"), "binary")
     elif fmt == "pointcloud/pcd_compressed":
-        pc.save(path.with_suffix(".pcd"), encoding=Encoding.BINARY_COMPRESSED)
+        write_pointcloud_pcd(msg, path.with_suffix(".pcd"), "binary_compressed")
     elif fmt == "pointcloud/pcd_ascii":
-        pc.save(path.with_suffix(".pcd"), encoding=Encoding.ASCII)
+        write_pointcloud_pcd(msg, path.with_suffix(".pcd"), "ascii")
+    else:
+        raise ValueError(f"Unsupported point cloud export format: {fmt}")

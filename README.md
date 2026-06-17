@@ -1,12 +1,11 @@
-<img src="ros2_unbag/ui/assets/badge.svg" height=130 align="right">
+<img src="qt_resources/assets/badge.svg" height=130 align="right">
 
 # *ros2 unbag* - fast ROS 2 bag export for any format
 
 <p align="center">
   <img src="https://img.shields.io/github/license/ika-rwth-aachen/ros2_unbag"/>
-  <a href="https://github.com/ika-rwth-aachen/ros2_unbag/actions/workflows/build_docker.yml"><img src="https://github.com/ika-rwth-aachen/ros2_unbag/actions/workflows/build_docker.yml/badge.svg"/></a>
-  <a href="https://pypi.org/project/ros2-unbag/"><img src="https://img.shields.io/pypi/v/ros2-unbag?label=PyPI"/></a>
-  <img alt="GitHub Repo stars" src="https://img.shields.io/pypi/dm/ros2-unbag">
+  <a href="https://github.com/ika-rwth-aachen/ros2_unbag/releases/latest"><img src="https://img.shields.io/github/v/release/ika-rwth-aachen/ros2_unbag"/></a>
+  <a href="https://github.com/ika-rwth-aachen/ros2_unbag/actions/workflows/docker-ros.yml"><img src="https://github.com/ika-rwth-aachen/ros2_unbag/actions/workflows/docker-ros.yml/badge.svg"/></a>
 </p>
 
 *ros2 unbag* is a powerful ROS 2 tool featuring an **intuitive GUI** and **flexible CLI** for extracting topics from `.db3` or `.mcap` bag files into formats like CSV, JSON, PCD, images, and more.
@@ -22,8 +21,6 @@
 ## Table of Contents
 - [Introduction](#introduction)
 - [Installation](#installation)  
-  - [Prerequisites](#prerequisites)  
-  - [From PyPI (via pip)](#from-pypi-via-pip)  
   - [From Source](#from-source)  
   - [Docker](#docker)  
 - [Quick Start](#quick-start)  
@@ -37,12 +34,12 @@
 
 ## Introduction
 <p align="center">
-  <a href="ros2_unbag/ui/assets/GUI.png">
-    <img src="ros2_unbag/ui/assets/GUI.png" alt="ros2 unbag GUI" style="max-width: 600px; width: 100%; height: auto;"/>
+  <a href="qt_resources/assets/GUI.png">
+    <img src="qt_resources/assets/GUI.png" alt="ros2 unbag GUI" style="max-width: 600px; width: 100%; height: auto;"/>
   </a>
 </p>
 
-The integrated GUI makes it easy to visualize your bag structure, select topics, configure export formats, set up processor chains, and manage resampling—all through an interactive interface. For automation and scripting workflows, the full-featured CLI provides the same capabilities with command-line arguments or JSON configuration files.
+The GUI makes it easy to inspect bag contents, select topics, configure export formats, build processor chains, and manage resampling. For automation and scripting workflows, the CLI provides the same export capabilities through command-line arguments or JSON configuration files.
 
 It comes with export routines for [all message types](docs/EXPORT_ROUTINES.md) (sensor data, point clouds, images). You need a special file format or message type? Add your [own export plugin](docs/EXPORT_ROUTINES.md#custom-export-routines) for any ROS 2 message or format, and chain [custom processors](docs/PROCESSORS.md) to filter, transform or enrich messages (e.g. drop fields, compute derived values, remap frames).
 
@@ -54,36 +51,39 @@ Whether you prefer the **GUI for interactive exploration** or `ros2 unbag <args>
 
 ## Installation 
 
-### Prerequisites
-
-Make sure you have a working ROS 2 installation (e.g., Humble, Iron, Jazzy, or newer) and that your environment is sourced:
-
-```bash
-source /opt/ros/<distro>/setup.bash
-```
-
-Replace `<distro>` with your ROS 2 distribution.
-
-Install the required apt dependencies:
-
-```bash
-sudo apt update
-sudo apt install libxcb-cursor0 libxcb-shape0 libxcb-icccm4 libxcb-keysyms1 libxkbcommon-x11-0
-```
-
-### From PyPI (via pip)
-
-```bash
-pip install ros2-unbag
-```
-
 ### From source
 
-```bash
-git clone https://github.com/ika-rwth-aachen/ros2_unbag.git
-cd ros2_unbag
-pip install .
-```
+1. Create a ROS 2 workspace and clone the repository into `src`:
+
+   ```bash
+   mkdir -p ros2_ws/src
+   git clone https://github.com/ika-rwth-aachen/ros2_unbag.git ros2_ws/src/ros2_unbag
+   cd ros2_ws
+   ```
+
+2. Source your ROS 2 installation:
+
+   ```bash
+   source /opt/ros/<distro>/setup.bash
+   ```
+
+3. Install the package dependencies via `rosdep`:
+
+   ```bash
+   rosdep install --from-paths src --ignore-src -r -y
+   ```
+
+4. Build the package with `colcon`:
+
+   ```bash
+   colcon build --packages-select unbag
+   ```
+
+5. Source the workspace overlay:
+
+   ```bash
+   source install/setup.bash
+   ```
 
 ### Docker 
 
@@ -93,13 +93,13 @@ You can skip local installs by running our ready‑to‑go Docker image:
 docker pull ghcr.io/ika-rwth-aachen/ros2_unbag:latest
 ```
 
-This image comes with ROS 2 Jazzy and *ros2 unbag* preinstalled. To launch it:
+This image comes with ROS 2 Jazzy and *ros2 unbag* preinstalled. To launch it:
 
 1. Clone or download the `docker/docker-compose.yml` in this repo.
 2. Run:
 
    ```bash
-   docker-compose -f docker/docker-compose.yml up
+   docker compose -f docker/docker-compose.yml up
    ```
 3. If you need the GUI, first enable X11 forwarding on your host (at your own risk!):
 
@@ -131,13 +131,13 @@ Run the CLI tool by calling *ros2 unbag* with a path to a rosbag and an export c
 ros2 unbag <path_to_rosbag> --export </topic:format[:subdir]>…
 ```
 
-Alternatively you can load a config file. In this case you do not need any `--export` flag:
+Alternatively, you can load a config file. In this case, you do not need any `--export` flag:
 ```bash
 ros2 unbag <path_to_rosbag> --config <config.json>
 ```
-the structure of config files is described in [here](./docs/ADVANCED_USAGE.md#configuration-file-structure).
+The config file structure is described [here](./docs/ADVANCED_USAGE.md#configuration-file-structure).
 
-In addition to these required flags, there are some optional flags. See the table below, for all possible flags:
+In addition to these required arguments, the following optional flags are available:
 | Flag                        | Value/Format                             | Description                                                                                                                       | Usage                              | Default        |
 | --------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | -------------- |
 | **`bag`**                   | `<path>`                                 | Path to ROS 2 bag file (`.db3` / `.mcap`) or split bag folder.                                                                    | CLI mode (required)                | –              |
@@ -157,7 +157,7 @@ In addition to these required flags, there are some optional flags. See the tabl
 | **`--uninstall-processor`** | (flag)                                   | Interactive removal of an installed processor.                                                                                    | Standalone                         | -              |
 | **`--help`**                | (flag)                                   | Show usage information and exit.                                                                                                  | Standalone                         | -              |
 
-Example: 
+Example:
 ```bash
 ros2 unbag rosbag/rosbag.mcap 
     --output-dir /docker-ros/ws/example/ --export /lidar/point_cloud:pointcloud/pcd:lidar --export /radar/point_cloud:pointcloud/pcd:radar --resample /lidar/point_cloud:last,0.2

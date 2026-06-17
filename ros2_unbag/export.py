@@ -1,6 +1,6 @@
 # MIT License
 
-# Copyright (c) 2025 Institute for Automotive Engineering (ika), RWTH Aachen University
+# Copyright (c) 2026 Institute for Automotive Engineering (ika), RWTH Aachen University
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -23,12 +23,20 @@
 import importlib
 import json
 import os
+from pathlib import Path
+import shutil
+import subprocess
 import sys
 from typing import Optional, Sequence
-
-from PySide6 import QtWidgets
-from PySide6.QtWidgets import QMessageBox
 from tqdm import tqdm
+
+try:
+    from ros2cli.command import CommandExtension
+except Exception:
+    class CommandExtension:
+        """Fallback base class for plain Python imports without ros2cli."""
+
+        pass
 
 from ros2_unbag.core.bag_reader import BagReader
 from ros2_unbag.core.exporter import Exporter
@@ -36,14 +44,6 @@ from ros2_unbag.core.routines.base import ExportRoutine, ExportMode
 from ros2_unbag.core.utils.bag_utils import resolve_bag_path
 import ros2_unbag.core.processors
 import ros2_unbag.core.routines
-from ros2_unbag.ui.main_window import UnbagApp
-
-# ros2cli is optional
-try:
-    from ros2cli.command import CommandExtension
-except Exception:
-    class CommandExtension:
-        pass
 
 class ExportCommand(CommandExtension):
 
@@ -150,16 +150,58 @@ class ExportCommand(CommandExtension):
         Returns:
             int: Exit code from the Qt application.
         """
-        def qt_exception_hook(exctype, value, traceback):
-            QMessageBox.critical(None, "Unhandled Exception",
-                                 f"{exctype.__name__}: {value}")
-            sys.__excepthook__(exctype, value, traceback)
+        executable = self._locate_gui_executable()
+        completed = subprocess.run([executable], check=False)
+        return completed.returncode
 
-        sys.excepthook = qt_exception_hook
-        app = QtWidgets.QApplication(sys.argv)
-        window = UnbagApp()
-        window.show()
-        return app.exec()
+    def _locate_gui_executable(self):
+        """
+        Locate the installed C++ GUI executable.
+
+        Returns:
+            str: Absolute or PATH-resolved executable path.
+
+        Raises:
+            RuntimeError: If the GUI executable cannot be located.
+        """
+        env_override = os.environ.get("ROS2_UNBAG_GUI_EXECUTABLE")
+        if env_override:
+            override_path = Path(env_override).expanduser()
+            if override_path.is_file() and os.access(override_path, os.X_OK):
+                return str(override_path)
+            raise RuntimeError(
+                "ROS2_UNBAG_GUI_EXECUTABLE is set but does not point to an executable file: "
+                f"{env_override}"
+            )
+
+        try:
+            from ament_index_python.packages import PackageNotFoundError, get_package_prefix
+        except ImportError:
+            # Non-ROS environments may not provide ament_index_python; fall
+            # back to PATH and local-build probing below.
+            pass
+        else:
+            try:
+                prefix = Path(get_package_prefix("unbag"))
+            except (PackageNotFoundError, ValueError):
+                prefix = None
+            if prefix is not None:
+                candidate = prefix / "lib" / "unbag" / "ros2_unbag_gui"
+                if candidate.exists():
+                    return str(candidate)
+
+        from_path = shutil.which("ros2_unbag_gui")
+        if from_path:
+            return from_path
+
+        local_build = Path.cwd() / "build" / "ros2_unbag_gui"
+        if local_build.exists():
+            return str(local_build)
+
+        raise RuntimeError(
+            "Could not locate the 'ros2_unbag_gui' executable. "
+            "Build/install the ROS package first or set ROS2_UNBAG_GUI_EXECUTABLE."
+        )
 
 
     def _run_cli(self, args):
@@ -443,9 +485,11 @@ class ExportCommand(CommandExtension):
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Standalone CLI entry point for environments without ros2cli.
-    Keeps behavior consistent with the ROS 2 verb by wiring argparse
-    to the same ExportCommand implementation.
+    """Expose the export command through a plain Python entry point.
+
+    This is mainly useful for tests and local invocation without going through
+    the ROS 2 CLI plugin loader, while still reusing ExportCommand argument
+    registration and execution logic.
     """
     import argparse
 
