@@ -169,6 +169,114 @@ def _field_dtype(field, *, endian: str) -> str:
     return endian + info[0]
 
 
+def _field_byte_width(field) -> int:
+    """
+    Compute the packed byte width for one PCD field.
+
+    Args:
+        field: PointField-like object.
+
+    Returns:
+        int: Total field width in bytes.
+    """
+    return _POINT_FIELD_DTYPES[field.datatype][1] * _field_count(field)
+
+
+def _packed_field_layout(msg: PointCloud2) -> tuple[list[tuple[PointField, int, int]], int]:
+    """
+    Build the packed byte layout for one PCD point.
+
+    Args:
+        msg: PointCloud2 message instance.
+
+    Returns:
+        tuple[list[tuple[PointField, int, int]], int]:
+            ``(layout, packed_point_step)`` where each layout entry is
+            ``(field, packed_offset, field_width)``.
+    """
+    layout = []
+    packed_offset = 0
+    for field in msg.fields:
+        field_width = _field_byte_width(field)
+        layout.append((field, packed_offset, field_width))
+        packed_offset += field_width
+    return layout, packed_offset
+
+
+def _point_byte_view(msg: PointCloud2) -> np.ndarray:
+    """
+    Create a strided byte-level view over the PointCloud2 point storage.
+
+    Args:
+        msg: PointCloud2 message instance.
+
+    Returns:
+        numpy.ndarray: ``(height, width, point_step)`` uint8 view.
+    """
+    point_count = msg.width * msg.height
+    if point_count == 0:
+        return np.empty((0, 0, msg.point_step), dtype=np.uint8)
+
+    return np.ndarray(
+        shape=(msg.height, msg.width, msg.point_step),
+        dtype=np.uint8,
+        buffer=memoryview(msg.data),
+        strides=(msg.row_step, msg.point_step, 1),
+    )
+
+
+def _is_packed_little_endian_layout(msg: PointCloud2, packed_step: int) -> bool:
+    """
+    Return whether the PointCloud2 byte layout already matches packed PCD bytes.
+
+    Args:
+        msg: PointCloud2 message instance.
+        packed_step: Expected packed point size.
+
+    Returns:
+        bool: ``True`` when no repacking or byte swapping is required.
+    """
+    if msg.is_bigendian or msg.point_step != packed_step:
+        return False
+
+    expected_offset = 0
+    for field in msg.fields:
+        if field.offset != expected_offset:
+            return False
+        expected_offset += _field_byte_width(field)
+    return True
+
+
+def _packed_point_byte_matrix(msg: PointCloud2) -> np.ndarray:
+    """
+    Convert PointCloud2 storage into a contiguous packed little-endian byte matrix.
+
+    Args:
+        msg: PointCloud2 message instance.
+
+    Returns:
+        numpy.ndarray: ``(point_count, packed_point_step)`` uint8 matrix.
+    """
+    layout, packed_step = _packed_field_layout(msg)
+    point_count = msg.width * msg.height
+    if point_count == 0:
+        return np.empty((0, packed_step), dtype=np.uint8)
+
+    source = _point_byte_view(msg)
+    if _is_packed_little_endian_layout(msg, packed_step):
+        return np.ascontiguousarray(source).reshape(point_count, packed_step)
+
+    packed = np.empty((msg.height, msg.width, packed_step), dtype=np.uint8)
+    for field, packed_offset, field_width in layout:
+        field_bytes = source[..., field.offset:field.offset + field_width]
+        item_size = _POINT_FIELD_DTYPES[field.datatype][1]
+        if msg.is_bigendian and item_size > 1:
+            reshaped = field_bytes.reshape(msg.height, msg.width, _field_count(field), item_size)
+            field_bytes = reshaped[..., ::-1].reshape(msg.height, msg.width, field_width)
+        packed[..., packed_offset:packed_offset + field_width] = field_bytes
+    return packed.reshape(point_count, packed_step)
+
+
 def _build_structured_dtype(msg: PointCloud2, *, endian: str, packed: bool) -> np.dtype:
     """
     Build a structured numpy dtype for the PointCloud2 layout.
@@ -246,12 +354,13 @@ def pointcloud2_to_pcd_array(msg: PointCloud2) -> np.ndarray:
     Returns:
         numpy.ndarray: Structured array in PCD-compatible field layout.
     """
-    structured = pointcloud2_to_structured_array(msg)
     packed_dtype = _build_structured_dtype(msg, endian="<", packed=True)
-    packed = np.empty(structured.shape, dtype=packed_dtype)
-    for field in msg.fields:
-        packed[field.name] = structured[field.name]
-    return packed
+    point_count = msg.width * msg.height
+    if point_count == 0:
+        return np.empty((0,), dtype=packed_dtype)
+
+    packed_bytes = _packed_point_byte_matrix(msg)
+    return np.frombuffer(packed_bytes, dtype=packed_dtype, count=point_count)
 
 
 def build_pcd_header(msg: PointCloud2, data_mode: str) -> bytes:
@@ -327,20 +436,7 @@ def format_pcd_binary_data(msg: PointCloud2) -> bytes:
     Returns:
         bytes: Packed binary point payload.
     """
-    return pointcloud2_to_pcd_array(msg).tobytes()
-
-
-def _field_byte_width(field) -> int:
-    """
-    Compute the packed byte width for one PCD field.
-
-    Args:
-        field: PointField-like object.
-
-    Returns:
-        int: Total field width in bytes.
-    """
-    return _POINT_FIELD_DTYPES[field.datatype][1] * _field_count(field)
+    return _packed_point_byte_matrix(msg).tobytes()
 
 
 def _pcd_struct_of_arrays_bytes(msg: PointCloud2, packed: np.ndarray) -> bytes:
@@ -355,8 +451,9 @@ def _pcd_struct_of_arrays_bytes(msg: PointCloud2, packed: np.ndarray) -> bytes:
         bytes: Field-major byte stream.
     """
     chunks = []
-    for field in msg.fields:
-        chunks.append(np.ascontiguousarray(packed[field.name]).tobytes())
+    layout, _ = _packed_field_layout(msg)
+    for _field, packed_offset, field_width in layout:
+        chunks.append(np.ascontiguousarray(packed[:, packed_offset:packed_offset + field_width]).tobytes())
     return b"".join(chunks)
 
 
@@ -406,7 +503,7 @@ def _lzf_compress(data: bytes) -> bytes:
             ):
                 flush_literals()
                 match_len = 3
-                max_match = min(data_len - i, max_ref + 2)
+                max_match = min(data_len - i, max_ref)
                 while match_len < max_match and data[ref + match_len] == data[i + match_len]:
                     match_len += 1
 
@@ -440,7 +537,7 @@ def format_pcd_binary_compressed_data(msg: PointCloud2) -> bytes:
     Returns:
         bytes: Binary-compressed payload including size prefix words.
     """
-    packed = pointcloud2_to_pcd_array(msg)
+    packed = _packed_point_byte_matrix(msg)
     uncompressed = _pcd_struct_of_arrays_bytes(msg, packed)
     compressed = _lzf_compress(uncompressed)
     return struct.pack("<II", len(compressed), len(uncompressed)) + compressed

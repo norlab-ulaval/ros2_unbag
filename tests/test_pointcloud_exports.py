@@ -349,6 +349,53 @@ def test_export_pointcloud_pcd_binary_compressed_handles_big_endian_input(tmp_pa
     _assert_points_close(_parse_binary_compressed_points(header, payload), _normalize_points(points))
 
 
+def test_export_pointcloud_pcd_binary_compressed_supports_larger_clouds(tmp_path):
+    points = []
+    for index in range(1024):
+        points.append(
+            {
+                "x": float(index),
+                "y": float(index + 1),
+                "z": float(index + 2),
+                "intensity": index % 65535,
+                "ring": index % 255,
+                "normal": [0.1, 0.2, 0.3],
+            }
+        )
+
+    msg = PointCloud2()
+    msg.width = len(points)
+    msg.height = 1
+    msg.is_bigendian = False
+    msg.is_dense = True
+    msg.point_step = 32
+    msg.row_step = msg.width * msg.point_step
+    msg.fields = [
+        PointField("x", 0, PointField.FLOAT32, 1),
+        PointField("y", 4, PointField.FLOAT32, 1),
+        PointField("z", 8, PointField.FLOAT32, 1),
+        PointField("intensity", 12, PointField.UINT16, 1),
+        PointField("ring", 14, PointField.UINT8, 1),
+        PointField("normal", 16, PointField.FLOAT32, 3),
+    ]
+    data = bytearray(msg.row_step)
+    for index, point in enumerate(points):
+        base = index * msg.point_step
+        struct.pack_into("<f", data, base + 0, point["x"])
+        struct.pack_into("<f", data, base + 4, point["y"])
+        struct.pack_into("<f", data, base + 8, point["z"])
+        struct.pack_into("<H", data, base + 12, point["intensity"])
+        struct.pack_into("<B", data, base + 14, point["ring"])
+        struct.pack_into("<fff", data, base + 16, *point["normal"])
+    msg.data = bytes(data)
+
+    export_pointcloud_pcd(msg, tmp_path / "cloud", "pointcloud/pcd_compressed", None)
+
+    header, payload = _parse_pcd(tmp_path / "cloud.pcd")
+    assert header["DATA"] == "binary_compressed"
+    _assert_points_close(_parse_binary_compressed_points(header, payload), _normalize_points(points))
+
+
 def test_export_pointcloud_pcd_ascii_writes_readable_rows(tmp_path):
     points = [
         {"x": 1.25, "y": 2.5, "z": 3.75, "intensity": 12, "ring": 1, "normal": [0.0, 1.0, 2.0]},
