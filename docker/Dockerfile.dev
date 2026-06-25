@@ -1,0 +1,27 @@
+FROM ros:jazzy
+
+SHELL ["/bin/bash", "-c"]
+
+# Create the ROS 2 workspace and copy the current source into it
+WORKDIR /ros2_ws
+RUN mkdir -p src
+COPY . src/ros2_unbag
+
+# Install dependencies and build the unbag package
+RUN source /opt/ros/jazzy/setup.bash && \
+    apt-get update && \
+    rosdep update && \
+    rosdep install --from-paths src --ignore-src -r -y && \
+    rm -rf /var/lib/apt/lists/* && \
+    colcon build --packages-select unbag
+
+# Source the workspace for interactive shells
+RUN echo "source /opt/ros/jazzy/setup.bash" >> /root/.bashrc && \
+    echo "source /ros2_ws/install/setup.bash" >> /root/.bashrc
+
+# Entrypoint that sources the overlay before running any command
+RUN printf '#!/bin/bash\nset -e\nsource /opt/ros/jazzy/setup.bash\nsource /ros2_ws/install/setup.bash\nexec "$@"\n' > /ros_entrypoint.sh && \
+    chmod +x /ros_entrypoint.sh
+
+ENTRYPOINT ["/ros_entrypoint.sh"]
+CMD ["bash"]

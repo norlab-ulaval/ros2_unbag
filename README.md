@@ -109,6 +109,12 @@ This image comes with ROS 2 Jazzy and *ros2 unbag* preinstalled. To launch it:
 
    Then start the container as above—the GUI will appear on your desktop.
 
+#### Local docker
+
+To build a docker image locally and work on it, you can use:
+```bash
+docker compose -f docker/docker-compose.dev.yml up
+```
 
 ## Quick Start
 
