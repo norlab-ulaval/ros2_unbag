@@ -48,7 +48,7 @@ def export_compressed_video(msg, path: Path, fmt: str, metadata: ExportMetadata)
     img = ensure_bgr(img)
 
     ps = export_compressed_video.persistent_storage
-    ts_ns = get_time_from_msg(msg, return_datetime=False)
+    ts_ns = get_time_from_msg(msg, return_datetime=False, bag_timestamp_ns=metadata.bag_timestamp_ns)
 
     write_video_frame(ps, img, ts_ns, path, fmt)
 
@@ -75,7 +75,7 @@ def export_video(msg, path: Path, fmt: str, metadata: ExportMetadata):
     img = ensure_bgr(img)
 
     ps = export_video.persistent_storage
-    ts_ns = get_time_from_msg(msg, return_datetime=False)
+    ts_ns = get_time_from_msg(msg, return_datetime=False, bag_timestamp_ns=metadata.bag_timestamp_ns)
 
     write_video_frame(ps, img, ts_ns, path, fmt)
 

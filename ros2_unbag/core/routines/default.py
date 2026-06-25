@@ -45,7 +45,7 @@ def export_generic_multi_file(msg, path: Path, fmt: str, metadata: ExportMetadat
     Returns:
         None
     """
-    timestamp = get_time_from_msg(msg, return_datetime=True)
+    timestamp = get_time_from_msg(msg, return_datetime=True, bag_timestamp_ns=metadata.bag_timestamp_ns)
 
     if fmt == "text/json":
         payload = _serialize_message_with_timestamp(msg, "json", timestamp)
@@ -77,7 +77,7 @@ def export_generic_single_file(msg, path: Path, fmt: str, metadata: ExportMetada
     Returns:
         None
     """
-    timestamp = get_time_from_msg(msg, return_datetime=True)
+    timestamp = get_time_from_msg(msg, return_datetime=True, bag_timestamp_ns=metadata.bag_timestamp_ns)
 
     if fmt == "text/json":
         payload = _serialize_message_with_timestamp(msg, "json", timestamp)

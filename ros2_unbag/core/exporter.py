@@ -332,9 +332,9 @@ class Exporter:
             res = self.bag_reader.read_next_message()
             if res is None:
                 break
-            topic, msg, _ = res
+            topic, msg, bag_ts = res
             if topic in self.config:
-                self._enqueue_export_task(topic, msg)
+                self._enqueue_export_task(topic, msg, bag_timestamp_ns=bag_ts)
         self._signal_worker_termination()
 
 
@@ -360,13 +360,13 @@ class Exporter:
             if res is None:
                 break
 
-            topic, msg, _ = res
+            topic, msg, bag_ts = res
             if topic not in self.config:
                 continue
 
-            ts = get_time_from_msg(msg, return_datetime=False)
+            ts = get_time_from_msg(msg, return_datetime=False, bag_timestamp_ns=bag_ts)
 
-            latest_messages[topic] = (ts, msg)
+            latest_messages[topic] = (ts, msg, bag_ts)
 
             if topic != master_topic:
                 continue  # Wait for master message
@@ -377,20 +377,20 @@ class Exporter:
             # Attempt to assemble a complete frame
             for t in self.config:
                 if t == master_topic:
-                    frame[t] = msg
+                    frame[t] = (msg, bag_ts)
                     continue
                 if t not in latest_messages:
                     frame = None
                     break
-                sel_ts, sel_msg = latest_messages[t]
+                sel_ts, sel_msg, sel_bag_ts = latest_messages[t]
                 if discard_eps_ns is not None and abs(master_ts - sel_ts) > discard_eps_ns:
                     frame = None
                     break
-                frame[t] = sel_msg
+                frame[t] = (sel_msg, sel_bag_ts)
 
             if frame:
-                for t, m in frame.items():
-                    self._enqueue_export_task(t, m, master_ts=master_ts)
+                for t, (m, b) in frame.items():
+                    self._enqueue_export_task(t, m, master_ts=master_ts, bag_timestamp_ns=b)
             else:
                 for t in self.config:
                     if t == master_topic:
@@ -424,14 +424,14 @@ class Exporter:
             if res is None:
                 break
 
-            topic, msg, _ = res
+            topic, msg, bag_ts = res
             if topic not in self.config:
                 continue
 
-            ts = get_time_from_msg(msg, return_datetime=False)
-            
+            ts = get_time_from_msg(msg, return_datetime=False, bag_timestamp_ns=bag_ts)
+
             latest_ts_seen = max(latest_ts_seen, ts)
-            buffers[topic].append((ts, msg))
+            buffers[topic].append((ts, msg, bag_ts))
 
             # Attempt to process buffered master messages with the data seen so far
             self._drain_nearest_frames(
@@ -470,7 +470,7 @@ class Exporter:
 
         Args:
             master_topic (str): Name of the master topic.
-            buffers (defaultdict(deque)): Per-topic buffers containing (timestamp, msg) tuples.
+            buffers (defaultdict(deque)): Per-topic buffers containing (timestamp, msg, bag_timestamp_ns) tuples.
             latest_ts_seen (int): Latest timestamp observed across topics (nanoseconds).
             discard_eps_ns (int): Discard epsilon threshold in nanoseconds.
             dropped_frames (dict): Mapping of topic -> dropped frame counts to update.
@@ -480,12 +480,12 @@ class Exporter:
             None
         """
         while buffers[master_topic]:
-            candidate_ts, candidate_msg = buffers[master_topic][0]
+            candidate_ts, candidate_msg, candidate_bag_ts = buffers[master_topic][0]
             if not flush and candidate_ts + discard_eps_ns > latest_ts_seen:
                 break  # Wait for more data to safely evaluate this master frame
 
             master_ts = candidate_ts
-            frame = {master_topic: candidate_msg}
+            frame = {master_topic: (candidate_msg, candidate_bag_ts)}
             valid = True
 
             # Find best match from each topic
@@ -493,26 +493,26 @@ class Exporter:
                 if t == master_topic:
                     continue
                 candidates = [
-                    (ts_, msg_)
-                    for ts_, msg_ in buffers[t]
+                    (ts_, msg_, bag_)
+                    for ts_, msg_, bag_ in buffers[t]
                     if abs(ts_ - master_ts) <= discard_eps_ns
                 ]
                 if not candidates:
                     valid = False
                     break
-                selected_ts, selected_msg = min(
+                selected_ts, selected_msg, selected_bag_ts = min(
                     candidates, key=lambda x: abs(x[0] - master_ts))
-                frame[t] = selected_msg
+                frame[t] = (selected_msg, selected_bag_ts)
 
             if valid:
-                for t, m in frame.items():
-                    self._enqueue_export_task(t, m, master_ts=master_ts)
+                for t, (m, b) in frame.items():
+                    self._enqueue_export_task(t, m, master_ts=master_ts, bag_timestamp_ns=b)
             else:
                 for t in self.config:
                     if t == master_topic:
                         continue
                     if not any(
-                        abs(ts_ - master_ts) <= discard_eps_ns for ts_, _ in buffers[t]):
+                        abs(ts_ - master_ts) <= discard_eps_ns for ts_, _, _ in buffers[t]):
                         dropped_frames[t] += 1
 
             # Remove processed master message
@@ -555,7 +555,7 @@ class Exporter:
             self.logger.info(f"  {topic}: {count} times")
 
 
-    def _enqueue_export_task(self, topic, msg, master_ts=None):
+    def _enqueue_export_task(self, topic, msg, master_ts=None, bag_timestamp_ns=None):
         """
         Build filename and directory for a topic message, create path, and enqueue the export task with format.
 
@@ -563,6 +563,8 @@ class Exporter:
             topic: Topic name (str).
             msg: ROS2 message instance.
             master_ts: Optional timestamp of the master topic (float/int).
+            bag_timestamp_ns: Optional bag-recorded timestamp (ns), used as a
+                fallback when the message itself carries no stamp.
 
         Returns:
             None
@@ -576,7 +578,7 @@ class Exporter:
 
         # Apply naming pattern
         idx_len = self.index_length[topic]
-        ts_float = get_time_from_msg(msg, return_datetime=False)
+        ts_float = get_time_from_msg(msg, return_datetime=False, bag_timestamp_ns=bag_timestamp_ns)
         replacements = {
             "name": cache["topic_base"],
             "index": str(index).zfill(idx_len),
@@ -590,7 +592,7 @@ class Exporter:
 
         # Strftime only applies if the naming contains strftime directives
         if cache["has_strftime_name"]:
-            timestamp = get_time_from_msg(msg, return_datetime=True)
+            timestamp = get_time_from_msg(msg, return_datetime=True, bag_timestamp_ns=bag_timestamp_ns)
             filename = timestamp.strftime(naming)
         else:
             filename = naming
@@ -613,7 +615,8 @@ class Exporter:
         self._enqueued_files.add(full_path)
 
         # Create metadata for the export
-        metadata = ExportMetadata(index=index, max_index=self.max_index[topic])
+        metadata = ExportMetadata(index=index, max_index=self.max_index[topic],
+                                  bag_timestamp_ns=bag_timestamp_ns)
 
         task = (topic, msg, full_path, cache["fmt"], metadata)
         if cache["sequential"]:

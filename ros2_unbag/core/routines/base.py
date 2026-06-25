@@ -33,7 +33,8 @@ class ExportMode(Enum):
 @dataclass(frozen=True)
 class ExportMetadata:
     index: int                     # The index of the message in the topic
-    max_index: int                 # The maximum index of the message in the topic  
+    max_index: int                 # The maximum index of the message in the topic
+    bag_timestamp_ns: Optional[int] = None  # Bag-recorded timestamp (ns), used as timestamp fallback for stampless messages
     
 class ExportRoutine:
     # Registry for export routines by message type and format

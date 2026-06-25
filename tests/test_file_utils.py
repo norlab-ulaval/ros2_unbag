@@ -98,3 +98,24 @@ def test_get_time_from_msg_fallback_types():
     ns = get_time_from_msg(_NoStamp(), return_datetime=False)
     assert hasattr(dt, 'timestamp')
     assert isinstance(ns, int)
+
+
+def test_get_time_from_msg_uses_bag_timestamp_when_no_stamp():
+    class _NoStamp:
+        pass
+
+    bag_ts = 1_700_000_002_000_000_500  # ns
+
+    ns = get_time_from_msg(_NoStamp(), return_datetime=False, bag_timestamp_ns=bag_ts)
+    assert ns == bag_ts
+
+    dt = get_time_from_msg(_NoStamp(), return_datetime=True, bag_timestamp_ns=bag_ts)
+    assert isinstance(dt, datetime)
+    assert abs(dt.timestamp() - bag_ts * 1e-9) < 1e-6
+
+
+def test_get_time_from_msg_prefers_message_stamp_over_bag_timestamp():
+    msg = _Msg(stamp=_Stamp(1700000001, 123456789))
+    # The bag timestamp is only a fallback; an explicit message stamp wins.
+    ns = get_time_from_msg(msg, return_datetime=False, bag_timestamp_ns=999)
+    assert ns == 1700000001 * 1_000_000_000 + 123_456_789

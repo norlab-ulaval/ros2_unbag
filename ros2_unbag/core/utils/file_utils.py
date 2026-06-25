@@ -26,13 +26,24 @@ import re
 
 logger = logging.getLogger(__name__)
 
-def get_time_from_msg(msg, return_datetime=True):
+def get_time_from_msg(msg, return_datetime=True, bag_timestamp_ns=None):
     """
     Extract the timestamp from a ROS2 message and return it as a datetime object.
-    Raises ValueError if the timestamp is invalid.
+
+    The timestamp is resolved in the following order of preference:
+    1. The message's own header stamp (``msg.header.stamp``).
+    2. The message's own stamp field (``msg.stamp``).
+    3. The bag-recorded timestamp (``bag_timestamp_ns``), if provided. This is
+       used for messages that carry no stamp of their own (e.g. Twist).
+    4. ``datetime.now()`` as a last resort, which is logged as a warning since it
+       may lead to incorrect behavior.
 
     Args:
         msg: ROS2 message instance.
+        return_datetime: If True, return a datetime object; otherwise return an
+            integer timestamp in nanoseconds.
+        bag_timestamp_ns: Optional bag-recorded timestamp in nanoseconds, used as
+            a fallback when the message itself carries no stamp.
 
     Returns:
         datetime: The extracted timestamp as a datetime object or an integer timestamp.
@@ -45,8 +56,13 @@ def get_time_from_msg(msg, return_datetime=True):
             sec = msg.stamp.sec
             nanosec = msg.stamp.nanosec
         except AttributeError:
+            if bag_timestamp_ns is not None:
+                if return_datetime:
+                    return datetime.fromtimestamp(bag_timestamp_ns * 1e-9)
+                return int(bag_timestamp_ns)
             logger.warning(
-                "Message has no valid timestamp; falling back to datetime.now() - This may lead to incorrect behavior."
+                "Message has no valid timestamp and no bag timestamp was provided; "
+                "falling back to datetime.now() - This may lead to incorrect behavior."
             )
             now = datetime.now()
             if return_datetime:
