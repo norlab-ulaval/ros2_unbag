@@ -2,10 +2,13 @@
 
 services:
   ros2_unbag:
-    image: ghcr.io/ika-rwth-aachen/ros2_unbag:latest
-    command: ros2 unbag                                   # Dafault: GUI, add your own flags here to use the CLI
+    image: ghcr.io/norlab-ulaval/ros2_unbag:latest
+    command: ros2 unbag                                   # Default: GUI, add your own flags here to use the CLI
+    # Example command to export a command in CLI:
+    #command: ros2 unbag --output-dir /docker-ros/ws/export_workspace/data -e /controller/cmd_vel:table/csv@single_file:%name /mnt/ssd_will/micro-drive/warthog/workshop_test/micro_drive_2026_05_13-14_54_26_0.mcap
     volumes:
-      - ../:/docker-ros/ws/export_workspace               # Mount anything you want to unbag here
+      - ../:/docker-ros/ws/export_workspace
       - /tmp/.X11-unix:/tmp/.X11-unix                     # Needed for X11 forwarding
+      # - /mnt/ssd_will:/mnt/ssd_will                     # Mount your rosbag here
     environment:
       - DISPLAY=$DISPLAY                                  # Needed for X11 forwarding

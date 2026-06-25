@@ -90,7 +90,7 @@ Whether you prefer the **GUI for interactive exploration** or `ros2 unbag <args>
 You can skip local installs by running our ready‑to‑go Docker image:
 
 ```bash
-docker pull ghcr.io/ika-rwth-aachen/ros2_unbag:latest
+docker pull ghcr.io/norlab-ulaval/ros2_unbag:latest
 ```
 
 This image comes with ROS 2 Jazzy and *ros2 unbag* preinstalled. To launch it:
