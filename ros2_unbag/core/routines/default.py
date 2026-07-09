@@ -21,13 +21,14 @@
 # SOFTWARE.
 
 import csv
+from datetime import datetime
 import json
 from pathlib import Path
 
 from rosidl_runtime_py import message_to_ordereddict, message_to_yaml
 
 from ros2_unbag.core.routines.base import ExportRoutine, ExportMode, ExportMetadata
-from ros2_unbag.core.utils.file_utils import get_time_from_msg
+from ros2_unbag.core.utils.file_utils import get_publisher_stamp_from_msg
 
 
 @ExportRoutine.set_catch_all(["text/json", "text/yaml", "table/csv"], mode=ExportMode.MULTI_FILE)
@@ -40,21 +41,23 @@ def export_generic_multi_file(msg, path: Path, fmt: str, metadata: ExportMetadat
         msg: ROS message instance to export.
         path: Output file path (without extension).
         fmt: Export format string ("text/yaml", "text/json", "table/csv").
-        metadata: Export metadata including message index and max index.
+        metadata: Export metadata including message index, max index, and the
+            bag-recorded timestamp.
 
     Returns:
         None
     """
-    timestamp = get_time_from_msg(msg, return_datetime=True, bag_timestamp_ns=metadata.bag_timestamp_ns)
+    ros_time = datetime.fromtimestamp(metadata.bag_timestamp_ns * 1e-9)
+    publisher_timestamp = get_publisher_stamp_from_msg(msg, return_datetime=True)
 
     if fmt == "text/json":
-        payload = _serialize_message_with_timestamp(msg, "json", timestamp)
+        payload = _serialize_message_with_timestamp(msg, "json", ros_time, publisher_timestamp)
         file_ending = ".json"
     elif fmt == "text/yaml":
-        payload = _serialize_message_with_timestamp(msg, "yaml", timestamp)
+        payload = _serialize_message_with_timestamp(msg, "yaml", ros_time, publisher_timestamp)
         file_ending = ".yaml"
     elif fmt == "table/csv":
-        payload = _serialize_message_with_timestamp(msg, "csv", timestamp)
+        payload = _serialize_message_with_timestamp(msg, "csv", ros_time, publisher_timestamp)
         file_ending = ".csv"
 
     # Save the serialized message to a file
@@ -72,21 +75,23 @@ def export_generic_single_file(msg, path: Path, fmt: str, metadata: ExportMetada
         msg: ROS message instance to export.
         path: Output file path (without extension).
         fmt: Export format string ("text/yaml", "text/json", "table/csv").
-        metadata: Export metadata including message index and max index.
+        metadata: Export metadata including message index, max index, and the
+            bag-recorded timestamp.
 
     Returns:
         None
     """
-    timestamp = get_time_from_msg(msg, return_datetime=True, bag_timestamp_ns=metadata.bag_timestamp_ns)
+    ros_time = datetime.fromtimestamp(metadata.bag_timestamp_ns * 1e-9)
+    publisher_timestamp = get_publisher_stamp_from_msg(msg, return_datetime=True)
 
     if fmt == "text/json":
-        payload = _serialize_message_with_timestamp(msg, "json", timestamp)
+        payload = _serialize_message_with_timestamp(msg, "json", ros_time, publisher_timestamp)
         file_ending = ".json"
     elif fmt == "text/yaml":
-        payload = _serialize_message_with_timestamp(msg, "yaml", timestamp)
+        payload = _serialize_message_with_timestamp(msg, "yaml", ros_time, publisher_timestamp)
         file_ending = ".yaml"
     elif fmt == "table/csv":
-        payload = _serialize_message_with_timestamp(msg, "csv", timestamp)
+        payload = _serialize_message_with_timestamp(msg, "csv", ros_time, publisher_timestamp)
         file_ending = ".csv"
 
     # Determine if this is the first or last message for the file
@@ -103,32 +108,38 @@ def export_generic_single_file(msg, path: Path, fmt: str, metadata: ExportMetada
         _write_line(f, payload, fmt, is_first, is_last)
 
 
-def _serialize_message_with_timestamp(msg, fmt, timestamp):
+def _serialize_message_with_timestamp(msg, fmt, ros_time, publisher_timestamp):
     """
     Serialize a ROS message to the specified format.
 
     Args:
         msg: ROS message instance to serialize.
         fmt: Export format string ("yaml", "json", "csv").
-        timestamp: Timestamp to include in the serialized output.
+        ros_time: Bag-recorded arrival time, always populated.
+        publisher_timestamp: The message's own header.stamp/stamp, or None if
+            the message carries no stamp of its own.
 
     Returns:
         str: Serialized message as a string.
     """
+    publisher_iso = publisher_timestamp.isoformat() if publisher_timestamp is not None else None
+
     if fmt == "json":
         message_dict = message_to_ordereddict(msg)
+        message_dict["publisher_timestamp"] = publisher_iso
         serialized_line = json.dumps(message_dict, default=str)
-        serialized_line_with_timestamp = f'"{timestamp.isoformat()}": {serialized_line}'
+        serialized_line_with_timestamp = f'"{ros_time.isoformat()}": {serialized_line}'
         return serialized_line_with_timestamp
     elif fmt == "yaml":
         yaml_content = message_to_yaml(msg)
-        indented_yaml_content = "\n".join(f"  {line}" for line in yaml_content.splitlines())
-        serialized_line_with_timestamp = f"{timestamp}:\n{indented_yaml_content}"
+        publisher_line = f"publisher_timestamp: {publisher_iso if publisher_iso is not None else 'null'}\n"
+        indented_yaml_content = "\n".join(f"  {line}" for line in (publisher_line + yaml_content).splitlines())
+        serialized_line_with_timestamp = f"{ros_time}:\n{indented_yaml_content}"
         return serialized_line_with_timestamp
     elif fmt == "csv":
         flat_data = _flatten(message_to_ordereddict(msg))
-        header = ["timestamp", *flat_data.keys()]
-        values = [str(timestamp), *flat_data.values()]
+        header = ["ros_time", "publisher_timestamp", *flat_data.keys()]
+        values = [str(ros_time), publisher_iso or "", *flat_data.values()]
         return [header, values]
 
 

@@ -74,6 +74,40 @@ def get_time_from_msg(msg, return_datetime=True, bag_timestamp_ns=None):
     return datetime.fromtimestamp(sec + nanosec * 1e-9)
 
 
+def get_publisher_stamp_from_msg(msg, return_datetime=True):
+    """
+    Extract the publisher-assigned stamp from a ROS2 message, if present.
+
+    Unlike get_time_from_msg, this performs no fallback to a bag-recorded
+    timestamp or to datetime.now(): if the message carries neither
+    ``msg.header.stamp`` nor ``msg.stamp``, None is returned. A
+    present-but-zero stamp (sec=0, nanosec=0) is returned verbatim as epoch -
+    it is a real (if buggy) publisher value, not treated as "missing".
+
+    Args:
+        msg: ROS2 message instance.
+        return_datetime: If True, return a datetime object; otherwise return
+            an integer timestamp in nanoseconds.
+
+    Returns:
+        datetime | int | None: The publisher stamp, or None if the message
+        has neither header.stamp nor stamp.
+    """
+    try:
+        sec = msg.header.stamp.sec
+        nanosec = msg.header.stamp.nanosec
+    except AttributeError:
+        try:
+            sec = msg.stamp.sec
+            nanosec = msg.stamp.nanosec
+        except AttributeError:
+            return None
+
+    if not return_datetime:
+        return int(sec) * 1_000_000_000 + int(nanosec)
+    return datetime.fromtimestamp(sec + nanosec * 1e-9)
+
+
 _PLACEHOLDER_RE = re.compile(r"%(name|index|timestamp|master_timestamp)")
 def substitute_placeholders(template_string: str, replacements: dict) -> str:
     """

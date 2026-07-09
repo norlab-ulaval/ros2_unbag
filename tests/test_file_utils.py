@@ -26,6 +26,7 @@ import pytest
 
 from ros2_unbag.core.utils.file_utils import (
     get_time_from_msg,
+    get_publisher_stamp_from_msg,
     substitute_placeholders,
     is_strftime_in_template,
 )
@@ -118,4 +119,32 @@ def test_get_time_from_msg_prefers_message_stamp_over_bag_timestamp():
     msg = _Msg(stamp=_Stamp(1700000001, 123456789))
     # The bag timestamp is only a fallback; an explicit message stamp wins.
     ns = get_time_from_msg(msg, return_datetime=False, bag_timestamp_ns=999)
+    assert ns == 1700000001 * 1_000_000_000 + 123_456_789
+
+
+def test_get_publisher_stamp_from_msg_returns_none_when_stampless():
+    class _NoStamp:
+        pass
+
+    assert get_publisher_stamp_from_msg(_NoStamp(), return_datetime=True) is None
+    assert get_publisher_stamp_from_msg(_NoStamp(), return_datetime=False) is None
+
+
+def test_get_publisher_stamp_from_msg_zero_stamp_returns_epoch_not_none():
+    msg = _Msg(header=_Header(0, 0))
+    dt = get_publisher_stamp_from_msg(msg, return_datetime=True)
+    assert dt is not None
+    assert dt == datetime.fromtimestamp(0)
+
+
+def test_get_publisher_stamp_from_msg_with_header_stamp():
+    msg = _Msg(header=_Header(1700000000, 250))
+    dt = get_publisher_stamp_from_msg(msg, return_datetime=True)
+    assert isinstance(dt, datetime)
+    assert abs(dt.timestamp() - (1700000000 + 250e-9)) < 1e-6
+
+
+def test_get_publisher_stamp_from_msg_with_stamp_int_ns():
+    msg = _Msg(stamp=_Stamp(1700000001, 123456789))
+    ns = get_publisher_stamp_from_msg(msg, return_datetime=False)
     assert ns == 1700000001 * 1_000_000_000 + 123_456_789
