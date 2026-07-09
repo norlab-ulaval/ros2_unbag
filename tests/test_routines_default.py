@@ -126,9 +126,10 @@ def test_multi_file_csv_headered_message_nonzero_stamp(tmp_path: Path):
     assert ros_time_str != publisher_ts_str
 
     expected_ros_time = str(datetime.fromtimestamp(metadata.bag_timestamp_ns * 1e-9))
-    expected_publisher_ts = datetime.fromtimestamp(1700000005 + 500 * 1e-9).isoformat()
+    expected_publisher_ts = str(datetime.fromtimestamp(1700000005 + 500 * 1e-9))
     assert ros_time_str == expected_ros_time
     assert publisher_ts_str == expected_publisher_ts
+    assert "T" not in ros_time_str and "T" not in publisher_ts_str
 
 
 def test_stampless_message_ros_time_from_bag_publisher_timestamp_empty(tmp_path: Path):
@@ -156,7 +157,7 @@ def test_husky_zero_stamp_exported_verbatim_not_suppressed(tmp_path: Path):
 
     rows = _read_csv_rows((tmp_path / "out").with_suffix(".csv"))
     values = rows[1]
-    assert values[1] == datetime.fromtimestamp(0).isoformat()
+    assert values[1] == str(datetime.fromtimestamp(0))
     assert values[1] != ""
 
 
@@ -167,10 +168,11 @@ def test_serialize_json_shape_with_publisher_timestamp():
     line = default._serialize_message_with_timestamp(object(), "json", ros_time, publisher_timestamp)
     parsed = json.loads("{" + line + "}")
 
-    assert set(parsed.keys()) == {ros_time.isoformat()}
-    entry = parsed[ros_time.isoformat()]
+    assert set(parsed.keys()) == {str(ros_time)}
+    entry = parsed[str(ros_time)]
     assert entry["value"] == 42
-    assert entry["publisher_timestamp"] == publisher_timestamp.isoformat()
+    assert entry["publisher_timestamp"] == str(publisher_timestamp)
+    assert "T" not in entry["publisher_timestamp"]
 
 
 def test_serialize_json_shape_publisher_timestamp_null():
@@ -179,7 +181,7 @@ def test_serialize_json_shape_publisher_timestamp_null():
     line = default._serialize_message_with_timestamp(object(), "json", ros_time, None)
     parsed = json.loads("{" + line + "}")
 
-    entry = parsed[ros_time.isoformat()]
+    entry = parsed[str(ros_time)]
     assert entry["publisher_timestamp"] is None
 
 

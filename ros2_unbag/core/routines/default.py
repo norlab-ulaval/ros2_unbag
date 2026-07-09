@@ -122,24 +122,28 @@ def _serialize_message_with_timestamp(msg, fmt, ros_time, publisher_timestamp):
     Returns:
         str: Serialized message as a string.
     """
-    publisher_iso = publisher_timestamp.isoformat() if publisher_timestamp is not None else None
+    # Use str() (not isoformat()) for both fields so they render identically -
+    # isoformat()'s "T" separator made publisher_timestamp look like it carried
+    # timezone info relative to ros_time, even though neither datetime is
+    # timezone-aware.
+    publisher_str = str(publisher_timestamp) if publisher_timestamp is not None else None
 
     if fmt == "json":
         message_dict = message_to_ordereddict(msg)
-        message_dict["publisher_timestamp"] = publisher_iso
+        message_dict["publisher_timestamp"] = publisher_str
         serialized_line = json.dumps(message_dict, default=str)
-        serialized_line_with_timestamp = f'"{ros_time.isoformat()}": {serialized_line}'
+        serialized_line_with_timestamp = f'"{ros_time}": {serialized_line}'
         return serialized_line_with_timestamp
     elif fmt == "yaml":
         yaml_content = message_to_yaml(msg)
-        publisher_line = f"publisher_timestamp: {publisher_iso if publisher_iso is not None else 'null'}\n"
+        publisher_line = f"publisher_timestamp: {publisher_str if publisher_str is not None else 'null'}\n"
         indented_yaml_content = "\n".join(f"  {line}" for line in (publisher_line + yaml_content).splitlines())
         serialized_line_with_timestamp = f"{ros_time}:\n{indented_yaml_content}"
         return serialized_line_with_timestamp
     elif fmt == "csv":
         flat_data = _flatten(message_to_ordereddict(msg))
         header = ["ros_time", "publisher_timestamp", *flat_data.keys()]
-        values = [str(ros_time), publisher_iso or "", *flat_data.values()]
+        values = [str(ros_time), publisher_str or "", *flat_data.values()]
         return [header, values]
 
 
